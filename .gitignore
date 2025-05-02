@@ -1,5 +1,24 @@
+# Python
 .venv/
 __pycache__/
-*.pyc
-*.log
+*.py[cod]
+*.egg-info/
+
+# macOS
 .DS_Store
+
+# Editor folders
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+
+# Configuration files
+*.conf
+models/*.tflite
+*.tflite
+models/
