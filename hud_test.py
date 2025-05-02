@@ -19,7 +19,7 @@ import zipfile
 import requests
 import numpy as np
 import cv2
-import tensorflow as tf
+from picamera2 import Picamera2
 
 # Use LiteRT interpreter (new recommended approach)
 try:
@@ -156,17 +156,22 @@ def main():
     (det_int, det_in, det_out, H_det, W_det,
      pose_int, pose_in, pose_out, H_pose, W_pose) = load_models()
     labels = load_labels()
+    # Picamera2 setup
+    picam2 = Picamera2()
+    config = picam2.create_preview_configuration(
+        main={"format":"RGB888", "size": (640, 480)},
+	raw=None
+    )
+    picam2.configure(config)
+    picam2.start()
 
-    cap = cv2.VideoCapture(0)
     prev_cars = {}
-
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+        rgb = picam2.capture_array()                   # H×W×3 RGB
+        frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)   # to BGR
 
         frame, prev_cars = detect_and_draw(
-            frame, det_int, det_in, det_out, H_det, W_det, labels, prev_cars
+          frame, det_int, det_in, det_out, H_det, W_det, labels, prev_cars
         )
         frame = estimate_pose(frame, pose_int, pose_in, pose_out)
 
@@ -174,7 +179,7 @@ def main():
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
-    cap.release()
+    picam2.stop()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
