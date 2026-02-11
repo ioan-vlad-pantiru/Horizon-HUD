@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import time
 import tensorflow as tf
+import os
 
 # --- Load Labels --- M
 def load_labels(filename):
@@ -9,8 +10,11 @@ def load_labels(filename):
         return {i: line.strip() for i, line in enumerate(f.readlines())}
 # -------------------
 
+# Get project root directory (one level up from src/)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Load model
-interpreter = tf.lite.Interpreter(model_path="models/1.tflite")
+interpreter = tf.lite.Interpreter(model_path=os.path.join(PROJECT_ROOT, "models/1.tflite"))
 interpreter.allocate_tensors()
 
 input_details = interpreter.get_input_details()
@@ -21,7 +25,7 @@ height = input_details[0]['shape'][1]
 width = input_details[0]['shape'][2]
 
 # Load the full ImageNet labels
-labels = load_labels('imagenet_labels.txt')
+labels = load_labels(os.path.join(PROJECT_ROOT, 'labels/imagenet_labels.txt'))
 if not labels:
     print("Error: Could not load labels from imagenet_labels.txt")
     exit()

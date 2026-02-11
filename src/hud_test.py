@@ -84,15 +84,18 @@ SCORE_THRESHOLD  = 0.5
 # ─── URLS & PATHS ───────────────────────────────────────────────────────────────
 # (Download code is commented out; assume models and labels are already in place.)
 
+# Get project root directory (one level up from src/)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # 1) SSD MobileNet V1 quantized COCO 300×300
 MODEL_ZIP_URL      = "https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip"
 MODEL_ZIP          = "coco_ssd_mobilenet_v1.zip"
-DETECT_MODEL_FILE  = "detect.tflite"
-LABELS_FILE        = "labelmap.txt"
+DETECT_MODEL_FILE  = os.path.join(PROJECT_ROOT, "detect.tflite")
+LABELS_FILE        = os.path.join(PROJECT_ROOT, "labels/labelmap.txt")
 
 # 2) MoveNet SinglePose Lightning INT8
 POSE_MODEL_URL     = "https://tfhub.dev/google/lite-model/movenet/singlepose/lightning/tflite/int8/4?lite-format=tflite"
-POSE_MODEL_FILE    = "pose.tflite"
+POSE_MODEL_FILE    = os.path.join(PROJECT_ROOT, "pose.tflite")
 
 # ─── MODEL LOADING ───────────────────────────────────────────────────────────────
 
