@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import time
-from ai_edge_litert.interpreter import Interpreter
+import tensorflow as tf
 
 # --- Load Labels --- M
 def load_labels(filename):
@@ -10,7 +10,7 @@ def load_labels(filename):
 # -------------------
 
 # Load model
-interpreter = Interpreter(model_path="models/1.tflite")
+interpreter = tf.lite.Interpreter(model_path="models/1.tflite")
 interpreter.allocate_tensors()
 
 input_details = interpreter.get_input_details()

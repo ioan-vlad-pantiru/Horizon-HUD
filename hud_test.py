@@ -19,7 +19,50 @@ import zipfile
 import requests
 import numpy as np
 import cv2
-from picamera2 import Picamera2
+try:
+    from picamera2 import Picamera2
+    print("Using picamera2")
+except Exception:
+    # Fallback adapter for systems without picamera2 (uses OpenCV VideoCapture).
+    # This provides the minimal methods used by the script: create_preview_configuration,
+    # configure, start, capture_array, stop.
+    print("picamera2 not available, using OpenCV VideoCapture fallback")
+    class Picamera2:
+        def __init__(self, device=0):
+            self.device = device
+            self.cap = None
+            self.main_config = {}
+
+        def create_preview_configuration(self, main=None, raw=None):
+            # store requested size/format so start() can apply it to VideoCapture
+            self.main_config = main or {}
+            return self.main_config
+
+        def configure(self, config):
+            # no-op for OpenCV fallback
+            pass
+
+        def start(self):
+            self.cap = cv2.VideoCapture(self.device)
+            if self.main_config and "size" in self.main_config:
+                w, h = self.main_config["size"]
+                # Note: some backends expect width/height reversed; this matches typical usage
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+
+        def capture_array(self):
+            if self.cap is None:
+                raise RuntimeError("VideoCapture not started")
+            ret, frame = self.cap.read()
+            if not ret:
+                raise RuntimeError("Failed to read frame from VideoCapture")
+            # Picamera2 returns RGB arrays; convert BGR->RGB to match expected format
+            return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        def stop(self):
+            if self.cap:
+                self.cap.release()
+                self.cap = None
 
 # Use LiteRT interpreter (new recommended approach)
 try:
@@ -160,7 +203,7 @@ def main():
     picam2 = Picamera2()
     config = picam2.create_preview_configuration(
         main={"format":"RGB888", "size": (640, 480)},
-	raw=None
+	    raw=None
     )
     picam2.configure(config)
     picam2.start()
