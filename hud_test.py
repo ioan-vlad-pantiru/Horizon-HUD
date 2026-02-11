@@ -88,10 +88,10 @@ SCORE_THRESHOLD  = 0.5
 MODEL_ZIP_URL      = "https://storage.googleapis.com/download.tensorflow.org/models/tflite/coco_ssd_mobilenet_v1_1.0_quant_2018_06_29.zip"
 MODEL_ZIP          = "coco_ssd_mobilenet_v1.zip"
 DETECT_MODEL_FILE  = "detect.tflite"
-LABELS_FILE        = "labelmap.txt"   # ensure you have the correct COCO label file
+LABELS_FILE        = "labelmap.txt"
 
 # 2) MoveNet SinglePose Lightning INT8
-POSE_MODEL_URL     = "https://github.com/tensorflow/examples/raw/master/lite/examples/pose_estimation/raspberry_pi/models/movenet_singlepose_lightning.tflite"
+POSE_MODEL_URL     = "https://tfhub.dev/google/lite-model/movenet/singlepose/lightning/tflite/int8/4?lite-format=tflite"
 POSE_MODEL_FILE    = "pose.tflite"
 
 # ─── MODEL LOADING ───────────────────────────────────────────────────────────────
