@@ -1,0 +1,13 @@
+{
+  "id": "ioanvladpantiru/horizon-hud-yolov8n-training",
+  "title": "Horizon HUD YOLOv8n Training",
+  "code_file": "kaggle_train_yolov8n.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": ["ioanvladpantiru/100k_labels"],
+  "competition_sources": [],
+  "kernel_sources": []
+}

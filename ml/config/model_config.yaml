@@ -1,0 +1,79 @@
+# Model Configuration for General Object Detection
+# Horizon-HUD: Primary Perception Stage
+
+model:
+  name: "ssd_mobilenet_v2"
+  input_size: [320, 320]  # Options: [320, 320] or [384, 384]
+  quantization: "int8"    # Options: "int8", "fp16", "fp32"
+  
+classes:
+  target_classes:
+    - "vehicle"
+    - "pedestrian"
+    - "cyclist"
+    - "road_obstacle"
+  
+  # BDD100K class mapping
+  bdd100k_mapping:
+    vehicle: ["car", "bus", "truck", "train", "rider"]
+    pedestrian: ["person"]
+    cyclist: ["bike", "motor", "rider"]  # rider includes cyclists
+    road_obstacle: ["traffic sign", "traffic light", "pole", "traffic cone"]
+
+training:
+  batch_size: 32
+  epochs: 100
+  learning_rate: 0.001
+  learning_rate_schedule:
+    - {epoch: 0, lr: 0.001}
+    - {epoch: 50, lr: 0.0001}
+    - {epoch: 75, lr: 0.00001}
+  
+  augmentation:
+    scale: [0.8, 1.2]
+    brightness: [0.7, 1.3]
+    blur: [0.0, 0.5]
+    rain_simulation: true
+  
+  loss:
+    localization_weight: 1.0
+    classification_weight: 1.0
+    hard_example_mining: true
+
+nms:
+  confidence_threshold: 0.5
+  iou_threshold: 0.6
+  max_detections: 100
+  class_aware: true
+
+dataset:
+  name: "bdd100k"
+  split:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+  
+  preserve_diversity:
+    day_night: true
+    weather: true
+    scenarios: ["rain", "glare", "occlusion", "motion_blur"]
+
+evaluation:
+  metrics:
+    - "mAP"
+    - "per_class_precision_recall"
+    - "frame_latency_p50"
+    - "frame_latency_p95"
+    - "frame_latency_p99"
+    - "fps_stability"
+    - "false_positive_rate"
+  
+  safety_critical_classes:
+    - "vehicle"
+    - "pedestrian"
+
+deployment:
+  target_platform: "raspberry_pi_5"
+  inference_engine: "tflite"
+  num_threads: 4
+  latency_target_ms: 50  # Target per-frame latency
