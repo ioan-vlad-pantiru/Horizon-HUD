@@ -1,0 +1,13 @@
+# Horizon-HUD YOLOv8 Dataset Configuration
+# Safety-critical motorcycle HUD detection
+
+path: /Users/pantiruvlad/Documents/Horizon-HUD/datasets/100k
+train: train
+val: val
+
+nc: 4
+names:
+  0: vehicle
+  1: pedestrian
+  2: cyclist
+  3: road_obstacle

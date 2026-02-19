@@ -1,0 +1,40 @@
+# Experiment Configuration Template
+# Copy and modify for each experiment run
+
+experiment:
+  name: "baseline_ssd_mobilenet_v2_320_int8"
+  description: "Baseline SSD MobileNetV2 320x320 INT8 quantization"
+  timestamp: null  # Auto-filled
+  
+model_variant: "ssd_mobilenet_v2"
+input_size: [320, 320]
+quantization: "int8"
+
+dataset:
+  path: "data/bdd100k"
+  use_subset: false
+  subset_size: null
+
+training:
+  resume_from: null  # Train from scratch
+  pretrained: "none"  # No pretrained initialization
+  
+  batch_size: 64
+  epochs: 100
+  early_stopping:
+    patience: 10
+    monitor: "val_loss"
+  
+  checkpoint:
+    save_best: true
+    save_frequency: 5  # Save every N epochs
+
+evaluation:
+  checkpoint_path: null  # Path to best checkpoint
+  test_set: true
+  benchmark_on_pi: false  # Set to true for final model
+
+output:
+  model_dir: "models/experiments/{experiment_name}"
+  log_dir: "models/experiments/{experiment_name}/logs"
+  checkpoint_dir: "models/experiments/{experiment_name}/checkpoints"
