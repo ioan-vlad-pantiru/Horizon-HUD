@@ -3,6 +3,8 @@ numpy>=1.24
 opencv-python>=4.8
 scipy>=1.11
 pyyaml>=6.0
+websockets>=12.0        # required for --imu phone
+# smbus2>=0.4           # required for --imu hardware (Raspberry Pi only)
 
 # TFLite runtime (optional – DummyDetector used if absent)
 # Install ONE of the following for real detector.tflite inference:

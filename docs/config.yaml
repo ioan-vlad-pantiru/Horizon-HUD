@@ -15,11 +15,24 @@ tracker:
   min_hits: 2
 
 imu:
+  source: simulator    # simulator | phone | hardware  (overridden by --imu flag)
+  # simulator options:
   scenario: straight_vibration   # straight_vibration | gentle_lean | accel_brake | constant_yaw
   noise_accel: 0.05
   noise_gyro: 0.005
   noise_mag: 0.3
   update_hz: 100.0
+  # phone options:
+  port: 8765           # WebSocket port (iPhone connects here)
+  http_port: 8766      # HTTP port (serves the bridge HTML page)
+  phone_yaw_axis: gamma  # which rotation channel is yaw: alpha | beta | gamma
+                         # portrait (phone upright) -> gamma
+                         # landscape (phone sideways) -> beta
+                         # flat on surface -> alpha
+                         # Open the bridge page in Safari to see live values and identify your axis.
+  # hardware (MPU-9250) options:
+  i2c_bus: 1           # I2C bus number (1 on Raspberry Pi 5)
+  i2c_address: 0x68    # 0x68 when AD0=GND, 0x69 when AD0=3.3V
 
 orientation:
   alpha: 0.98
@@ -35,7 +48,8 @@ corridor:
   bottom_width_ratio: 0.55    # fraction of frame width at the bottom edge
   top_width_ratio: 0.18       # fraction of frame width at the horizon edge
   height_ratio: 0.55          # fraction of frame height the corridor spans (up from bottom)
-  center_x_ratio: 0.50        # horizontal centre (0=left, 1=right)
+  center_x_ratio: 0.50        # straight-ahead horizontal centre (0=left, 1=right)
+  yaw_gain: 0.50              # screen-fraction shift per radian of yaw delta (tune to taste)
 
 # ── Risk Engine v1 ─────────────────────────────────────────────────────────
 risk:

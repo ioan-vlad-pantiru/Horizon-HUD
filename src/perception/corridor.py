@@ -28,7 +28,8 @@ def build_corridor_polygon(
 
     Vertices:  BL, BR, TR, TL  (clockwise from bottom-left).
     """
-    cx = frame_w * cfg.center_x_ratio
+    cx_bot = frame_w * cfg.center_x_ratio
+    cx_top = frame_w * cfg.top_center_x_ratio
     bot_half = frame_w * cfg.bottom_width_ratio / 2.0
     top_half = frame_w * cfg.top_width_ratio / 2.0
     top_y = float(frame_h) * (1.0 - cfg.height_ratio)
@@ -36,10 +37,10 @@ def build_corridor_polygon(
 
     return np.array(
         [
-            [cx - bot_half, bot_y],   # BL
-            [cx + bot_half, bot_y],   # BR
-            [cx + top_half, top_y],   # TR
-            [cx - top_half, top_y],   # TL
+            [cx_bot - bot_half, bot_y],   # BL
+            [cx_bot + bot_half, bot_y],   # BR
+            [cx_top + top_half, top_y],   # TR
+            [cx_top - top_half, top_y],   # TL
         ],
         dtype=np.float32,
     )
@@ -139,6 +140,25 @@ def corridor_membership(x: float, y: float, poly: np.ndarray) -> float:
         return 1.0
     excess = dist - half_w
     return max(0.0, 1.0 - excess / (half_w + 1e-6))
+
+
+def yaw_to_center_x(
+    yaw_delta: float, yaw_gain: float, base: float = 0.5
+) -> float:
+    """Map a yaw delta (radians) to a corridor center_x_ratio.
+
+    Parameters
+    ----------
+    yaw_delta :
+        Current yaw minus straight-ahead reference yaw, in radians.
+    yaw_gain :
+        Normalised screen-fraction shift per radian (from CorridorConfig).
+    base :
+        Straight-ahead centre (normally 0.5).
+
+    Returns a value clamped to [0.1, 0.9].
+    """
+    return max(0.1, min(0.9, base - yaw_delta * yaw_gain))
 
 
 def draw_corridor(

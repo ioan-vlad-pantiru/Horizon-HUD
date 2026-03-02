@@ -184,6 +184,7 @@ class RiskEngineV1:
         frame_size: tuple[int, int],
         timestamp: float,
         compensated_velocities: Optional[dict[int, tuple[float, float]]] = None,
+        corridor_center_x: Optional[float] = None,
     ) -> list[RiskAssessmentV1]:
         """Score all active tracks and return top-N assessments.
 
@@ -198,11 +199,17 @@ class RiskEngineV1:
         compensated_velocities
             Optional per-track compensated (ego-motion removed) velocity in
             px/s.  Falls back to track.velocity_px_s when absent.
+        corridor_center_x
+            When provided, overrides the corridor's horizontal centre so the
+            risk-scoring polygon stays in sync with the yaw-steered visual one.
         """
         fw, fh = frame_size
         self._focal = focal_length_from_fov(fw, self._cfg.fov_deg)
 
-        if self._corridor is None or self._corridor[0, 1] != fh:
+        if corridor_center_x is not None:
+            self._ccfg.top_center_x_ratio = corridor_center_x
+            self._corridor = build_corridor_polygon(fw, fh, self._ccfg)
+        elif self._corridor is None or self._corridor[0, 1] != fh:
             self._corridor = build_corridor_polygon(fw, fh, self._ccfg)
 
         active_ids = {tr.track_id for tr in tracks}
@@ -390,7 +397,7 @@ def corridor_config_from_dict(d: dict) -> CorridorConfig:
     kwargs = {
         k: d[k] for k in (
             "bottom_width_ratio", "top_width_ratio",
-            "height_ratio", "center_x_ratio",
+            "height_ratio", "center_x_ratio", "top_center_x_ratio", "yaw_gain",
         ) if k in d
     }
     return CorridorConfig(**kwargs)

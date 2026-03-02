@@ -28,7 +28,9 @@ class CorridorConfig:
     bottom_width_ratio: float = 0.55   # fraction of frame width at bottom edge
     top_width_ratio: float = 0.18      # fraction of frame width at horizon edge
     height_ratio: float = 0.55         # fraction of frame height the corridor spans (from bottom up)
-    center_x_ratio: float = 0.50       # horizontal centre of corridor
+    center_x_ratio: float = 0.50       # bottom centre (fixed, road straight ahead)
+    top_center_x_ratio: float = 0.50   # top centre (shifts with yaw — vanishing point)
+    yaw_gain: float = 0.50             # screen-fraction shift per radian of yaw delta
 
 
 @dataclasses.dataclass
