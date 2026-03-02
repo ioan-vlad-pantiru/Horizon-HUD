@@ -1,3 +1,19 @@
+# Core (perception pipeline – required)
+numpy>=1.24
+opencv-python>=4.8
+scipy>=1.11
+pyyaml>=6.0
+
+# TFLite runtime (optional – DummyDetector used if absent)
+# Install ONE of the following for real detector.tflite inference:
+#   pip install ai-edge-litert
+#   pip install tflite-runtime
+#   pip install tensorflow
+
+# Testing
+pytest>=7.0
+
+# --- Legacy / full TF stack (kept for notebooks & model conversion) ---
 absl-py==2.2.2
 astunparse==1.6.3
 certifi==2025.1.31
