@@ -1,3 +1,21 @@
+# Core (perception pipeline – required)
+numpy>=1.24
+opencv-python>=4.8
+scipy>=1.11
+pyyaml>=6.0
+websockets>=12.0        # required for --imu phone
+# smbus2>=0.4           # required for --imu hardware (Raspberry Pi only)
+
+# TFLite runtime (optional – DummyDetector used if absent)
+# Install ONE of the following for real detector.tflite inference:
+#   pip install ai-edge-litert
+#   pip install tflite-runtime
+#   pip install tensorflow
+
+# Testing
+pytest>=7.0
+
+# --- Legacy / full TF stack (kept for notebooks & model conversion) ---
 absl-py==2.2.2
 astunparse==1.6.3
 certifi==2025.1.31
@@ -24,12 +42,14 @@ optree==0.15.0
 packaging==24.2
 protobuf==5.29.4
 Pygments==2.19.1
+pyyaml==6.0.1
 requests==2.32.3
 rich==14.0.0
 six==1.17.0
 tensorboard==2.19.0
 tensorboard-data-server==0.7.2
 tensorflow==2.19.0
+tensorflow-hub==0.16.1
 tensorflow-io-gcs-filesystem==0.37.1
 termcolor==3.0.1
 typing_extensions==4.13.2

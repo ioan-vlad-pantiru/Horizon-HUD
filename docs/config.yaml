@@ -1,0 +1,113 @@
+detector:
+  type: tflite            # "tflite" or "dummy"
+  model: models/best_float16.tflite
+  score_thresh: 0.20
+  nms_thresh: 0.45
+  labels:
+    0: vehicle
+    1: pedestrian
+    2: cyclist
+    3: road_obstacle
+
+tracker:
+  iou_thresh: 0.3
+  max_age: 5
+  min_hits: 2
+
+imu:
+  source: simulator    # simulator | phone | hardware  (overridden by --imu flag)
+  # simulator options:
+  scenario: straight_vibration   # straight_vibration | gentle_lean | accel_brake | constant_yaw
+  noise_accel: 0.05
+  noise_gyro: 0.005
+  noise_mag: 0.3
+  update_hz: 100.0
+  # phone options:
+  port: 8765           # WebSocket port (iPhone connects here)
+  http_port: 8766      # HTTP port (serves the bridge HTML page)
+  phone_yaw_axis: gamma  # which rotation channel is yaw: alpha | beta | gamma
+                         # portrait (phone upright) -> gamma
+                         # landscape (phone sideways) -> beta
+                         # flat on surface -> alpha
+                         # Open the bridge page in Safari to see live values and identify your axis.
+  # hardware (MPU-9250) options:
+  i2c_bus: 1           # I2C bus number (1 on Raspberry Pi 5)
+  i2c_address: 0x68    # 0x68 when AD0=GND, 0x69 when AD0=3.3V
+
+orientation:
+  alpha: 0.98
+  use_mag: true
+
+motion:
+  enabled: true
+  fov_deg: 70.0
+  # K: [[fx,0,cx],[0,fy,cy],[0,0,1]]   # override intrinsic matrix (optional)
+
+# ── Corridor (trapezoid path approximation) ────────────────────────────────
+corridor:
+  bottom_width_ratio: 0.55    # fraction of frame width at the bottom edge
+  top_width_ratio: 0.18       # fraction of frame width at the horizon edge
+  height_ratio: 0.55          # fraction of frame height the corridor spans (up from bottom)
+  center_x_ratio: 0.50        # straight-ahead horizontal centre (0=left, 1=right)
+  yaw_gain: 0.50              # screen-fraction shift per radian of yaw delta (tune to taste)
+
+# ── Risk Engine v1 ─────────────────────────────────────────────────────────
+risk:
+  # scoring weights (should sum to ~1.0)
+  w_ttc: 0.40
+  w_distance: 0.25
+  w_path: 0.20
+  w_class: 0.10
+  w_erratic: 0.05
+
+  # TTC thresholds (seconds) — piecewise linear breakpoints
+  ttc_critical_s: 1.5
+  ttc_high_s: 3.0
+  ttc_medium_s: 6.0
+  ttc_max_s: 12.0
+
+  # Distance calibration
+  fov_deg: 70.0
+  distance_near_m: 5.0      # full distance risk at or below this
+  distance_max_m: 40.0      # zero distance risk at or beyond this
+  known_heights_m:
+    pedestrian: 1.75
+    cyclist: 1.70
+    vehicle: 1.50
+    road_obstacle: 0.40
+    default: 1.50
+
+  # Class priors [0, 1]
+  class_prior:
+    pedestrian: 1.00
+    cyclist: 0.85
+    vehicle: 0.65
+    road_obstacle: 0.45
+    default: 0.50
+
+  # EMA smoothing — higher alpha = more responsive, less smooth
+  ema_alpha: 0.40
+
+  # Hysteresis enter / exit thresholds
+  enter_medium: 0.30
+  exit_medium: 0.25
+  enter_high: 0.55
+  exit_high: 0.50
+  enter_critical: 0.80
+  exit_critical: 0.75
+
+  # Persistence: escalate to HIGH/CRITICAL only if threshold exceeded in
+  # persist_k of the last persist_m frames
+  persist_k: 3
+  persist_m: 5
+
+  # Surface only top_n hazards prominently in the HUD overlay
+  top_n: 2
+
+  # Per-track history depth (frames)
+  history_len: 8
+
+# ── Logging ────────────────────────────────────────────────────────────────
+log:
+  enabled: false           # set true to write JSONL to log.directory
+  directory: docs/logs
