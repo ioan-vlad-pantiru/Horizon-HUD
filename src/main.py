@@ -348,6 +348,11 @@ def main() -> None:
                         help="IMU source: simulator (default), phone, or hardware")
     parser.add_argument("--jsonl", default=None,
                         help="Optional output JSONL path (overrides config log)")
+    parser.add_argument("--eval", action="store_true",
+                        help="Enable evaluation mode: print TP/FP/lead-time stats at shutdown")
+    parser.add_argument("--gt", default=None, metavar="PATH",
+                        help="Ground-truth JSONL for --eval mode.  Each record: "
+                             '{"frame": N, "hazard_ids": [...]}')
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -419,6 +424,27 @@ def main() -> None:
         if isinstance(active_detector, TFLiteDetector) and active_detector.is_real
         else "dummy"
     )
+
+    # ── eval mode ─────────────────────────────────────────────────────────────
+    gt_index: dict[int, set[int]] = {}   # frame_idx → set of hazardous track IDs
+    if args.eval and args.gt:
+        with open(args.gt) as _gt_f:
+            for _line in _gt_f:
+                _line = _line.strip()
+                if _line:
+                    _rec = json.loads(_line)
+                    gt_index[int(_rec["frame"])] = set(_rec.get("hazard_ids", []))
+        logger.info("Loaded GT for %d frames from %s", len(gt_index), args.gt)
+    elif args.eval:
+        logger.warning("--eval set but no --gt provided; TP/FP metrics will be trivially 0.")
+
+    # Eval accumulators (only used when --eval is set)
+    _eval_tp_frames = 0   # frames where HIGH/CRITICAL fired AND GT hazard present
+    _eval_fp_frames = 0   # frames where HIGH/CRITICAL fired AND no GT hazard
+    _eval_fn_frames = 0   # frames where GT hazard present AND no HIGH/CRITICAL
+    # lead_times[track_id] = (gt_first_frame, alert_first_frame)
+    _eval_gt_first: dict[int, int] = {}
+    _eval_alert_first: dict[int, int] = {}
 
     # ── log file ───────────────────────────────────────────────────────────────
     log_file = _open_log(cfg, args.jsonl)
@@ -500,6 +526,30 @@ def main() -> None:
             )
             top_ids = {ra.track_id for ra in hazards}
 
+            # ── eval mode tracking ────────────────────────────────────────────
+            if args.eval:
+                gt_hazard_ids = gt_index.get(frame_idx, set())
+                # Record GT first-seen per hazard track
+                for tid in gt_hazard_ids:
+                    if tid not in _eval_gt_first:
+                        _eval_gt_first[tid] = frame_idx
+                # Record alert first-seen per track
+                alerted_ids = {
+                    ra.track_id for ra in hazards
+                    if ra.risk_level in ("HIGH", "CRITICAL")
+                }
+                for tid in alerted_ids:
+                    if tid not in _eval_alert_first:
+                        _eval_alert_first[tid] = frame_idx
+                # Frame-level TP/FP/FN
+                if alerted_ids:
+                    if gt_hazard_ids:
+                        _eval_tp_frames += 1
+                    else:
+                        _eval_fp_frames += 1
+                elif gt_hazard_ids:
+                    _eval_fn_frames += 1
+
             # ── visualisation ─────────────────────────────────────────────────
             if show_corridor and corridor_poly is not None:
                 draw_corridor(frame, corridor_poly)
@@ -563,6 +613,34 @@ def main() -> None:
         if hasattr(imu, "close"):
             imu.close()
         logger.info("Shutdown complete  frames=%d", frame_idx)
+
+        if args.eval:
+            total_alert_frames = _eval_tp_frames + _eval_fp_frames
+            total_gt_frames = _eval_tp_frames + _eval_fn_frames
+            tpr = _eval_tp_frames / total_gt_frames if total_gt_frames > 0 else float("nan")
+            fpr = _eval_fp_frames / max(frame_idx - total_gt_frames, 1)
+
+            # Lead time: GT first-seen → alert first-seen, for tracks in both sets
+            lead_times = []
+            for tid, gt_f in _eval_gt_first.items():
+                alert_f = _eval_alert_first.get(tid)
+                if alert_f is not None:
+                    lead_times.append(alert_f - gt_f)
+            mean_lead = sum(lead_times) / len(lead_times) if lead_times else float("nan")
+
+            print("\n" + "=" * 52)
+            print("EVAL SUMMARY")
+            print("=" * 52)
+            print(f"  Total frames processed    : {frame_idx}")
+            print(f"  Frames with GT hazard     : {total_gt_frames}")
+            print(f"  Frames with alert fired   : {total_alert_frames}")
+            print(f"  True positive frames (TP) : {_eval_tp_frames}")
+            print(f"  False positive frames (FP): {_eval_fp_frames}")
+            print(f"  False negative frames (FN): {_eval_fn_frames}")
+            print(f"  True positive rate (TPR)  : {tpr:.3f}" if tpr == tpr else "  True positive rate (TPR)  : n/a (no GT hazards)")
+            print(f"  False positive rate (FPR) : {fpr:.3f}")
+            print(f"  Mean lead time            : {mean_lead:.1f} frames" if mean_lead == mean_lead else "  Mean lead time            : n/a")
+            print("=" * 52)
 
 
 if __name__ == "__main__":
