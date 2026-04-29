@@ -55,11 +55,15 @@ corridor:
 # ── Risk Engine v1 ─────────────────────────────────────────────────────────
 risk:
   # scoring weights (should sum to ~1.0)
-  w_ttc: 0.40
-  w_distance: 0.25
+  w_ttc: 0.35
+  w_distance: 0.20
   w_path: 0.20
   w_class: 0.10
   w_erratic: 0.05
+  w_lateral: 0.10      # lateral closing speed toward corridor centreline
+
+  # Lateral risk threshold
+  lateral_ttc_s: 2.0   # time-to-centreline (s) above which lateral risk = 0
 
   # TTC thresholds (seconds) — piecewise linear breakpoints
   ttc_critical_s: 1.5

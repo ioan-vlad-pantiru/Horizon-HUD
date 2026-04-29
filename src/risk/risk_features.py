@@ -176,6 +176,82 @@ def erratic_score(history: deque[TrackSnapshot]) -> float:
     return min(math.sqrt(variance) / 80.0, 1.0)
 
 
+# ── lateral risk ─────────────────────────────────────────────────────────────
+
+def lateral_risk_score(
+    track: Track,
+    corridor_poly: "np.ndarray",
+    compensated_vel: Optional[tuple[float, float]] = None,
+    lateral_ttc_s: float = 2.0,
+) -> float:
+    """Score in [0, 1] for lateral motion directed toward the corridor centreline.
+
+    High when: the object is outside the corridor AND moving inward (toward the
+    centreline) fast enough to intersect within *lateral_ttc_s* seconds.
+
+    Returns 0 when:
+      - The object is already inside the corridor (path_factor handles this).
+      - The object is moving away from or parallel to the centreline.
+      - The object is outside the corridor's vertical span.
+
+    Parameters
+    ----------
+    track
+        Current track state (bbox and velocity).
+    corridor_poly
+        4×2 float array [BL, BR, TR, TL] from build_corridor_polygon.
+    compensated_vel
+        Ego-motion-compensated (vx, vy) in px/s.  Falls back to
+        track.velocity_px_s when None.
+    lateral_ttc_s
+        Time-to-intersect threshold in seconds.  Objects whose lateral
+        trajectory would cross the centreline within this window get a
+        non-zero score.
+    """
+    import numpy as _np  # lazy import — keeps risk_features importable without numpy
+
+    vx, _ = compensated_vel if compensated_vel is not None else track.velocity_px_s
+    cx = (track.bbox_xyxy[0] + track.bbox_xyxy[2]) / 2.0
+    foot_y = float(track.bbox_xyxy[3])
+
+    # ── interpolate corridor edges at foot_y ──────────────────────────────────
+    bot_y = float(corridor_poly[0, 1])
+    top_y = float(corridor_poly[3, 1])
+
+    if foot_y < top_y or foot_y > bot_y:
+        return 0.0
+
+    span = bot_y - top_y
+    if span < 1e-6:
+        return 0.0
+
+    t = (foot_y - top_y) / span   # 0 at top, 1 at bottom
+    left_x = float(corridor_poly[3, 0]) + t * (float(corridor_poly[0, 0]) - float(corridor_poly[3, 0]))
+    right_x = float(corridor_poly[2, 0]) + t * (float(corridor_poly[1, 0]) - float(corridor_poly[2, 0]))
+
+    center_x = (left_x + right_x) / 2.0
+    half_w = (right_x - left_x) / 2.0
+
+    signed_dist = cx - center_x
+
+    # ── inside corridor: handled by path_factor ───────────────────────────────
+    if abs(signed_dist) <= half_w:
+        return 0.0
+
+    # ── lateral closing speed toward centreline (positive = approaching) ──────
+    lateral_closing = -vx * math.copysign(1.0, signed_dist)
+
+    if lateral_closing <= 0.0:
+        return 0.0
+
+    tti = abs(signed_dist) / lateral_closing   # seconds
+
+    if tti >= lateral_ttc_s:
+        return 0.0
+
+    return 1.0 - tti / lateral_ttc_s
+
+
 # ── track confidence ──────────────────────────────────────────────────────────
 
 def confidence_factor(track: Track, min_hits: int = 3) -> float:

@@ -7,6 +7,10 @@ Six required cases (Task 1.3):
   4. Corridor — in-path object scores higher than identical off-path object.
   5. Score bounds — risk_score always in [0.0, 1.0] across 50 random inputs.
   6. Empty tracks — update([], ...) returns [].
+
+Additional case (Task 2.4):
+  7. Lateral risk — pedestrian with strong inward lateral velocity scores higher
+     than an identical stationary pedestrian at the corridor edge.
 """
 
 from __future__ import annotations
@@ -15,7 +19,9 @@ import random
 import unittest
 
 from src.risk.risk_engine import RiskEngineV1, _apply_hysteresis
+from src.risk.risk_features import lateral_risk_score
 from src.risk.risk_types import CorridorConfig, RiskConfig
+from src.perception.corridor import build_corridor_polygon
 from src.core.types import Track
 
 
@@ -209,6 +215,64 @@ class TestEmptyTracks(unittest.TestCase):
         engine.update([_track(tid=1)], _FRAME, _T0)
         result = engine.update([], _FRAME, _T0 + _DT)
         self.assertEqual(result, [])
+
+
+# ── 7. Lateral risk (Task 2.4) ────────────────────────────────────────────────
+
+class TestLateralRisk(unittest.TestCase):
+    """Pedestrian moving inward from the corridor edge must score materially higher
+    than an identical stationary pedestrian."""
+
+    def test_lateral_inward_scores_higher_than_stationary(self) -> None:
+        ccfg = CorridorConfig()
+        poly = build_corridor_polygon(640, 480, ccfg)
+
+        # Place pedestrian just outside the right corridor edge at mid-frame height.
+        # cx ≈ 550, which is well outside the ~487-px right edge at y=350.
+        edge_stationary = _track(tid=1, bbox=(490.0, 270.0, 610.0, 430.0), vel=(0.0, 0.0))
+        edge_lateral    = _track(tid=2, bbox=(490.0, 270.0, 610.0, 430.0), vel=(-200.0, 0.0))
+        # vx = -200 px/s (moving left = toward corridor centre at x≈320)
+
+        # Test the feature function directly for a crisp unit test.
+        r_stationary = lateral_risk_score(edge_stationary, poly)
+        r_lateral = lateral_risk_score(edge_lateral, poly)
+
+        self.assertEqual(r_stationary, 0.0, "Stationary object should have zero lateral score")
+        self.assertGreater(r_lateral, 0.0, "Inward-moving object must have positive lateral score")
+
+    def test_lateral_outward_scores_zero(self) -> None:
+        """Object moving away from the corridor must score zero."""
+        ccfg = CorridorConfig()
+        poly = build_corridor_polygon(640, 480, ccfg)
+        # Object to the right, moving further right (away from centre)
+        track_away = _track(tid=3, bbox=(490.0, 270.0, 610.0, 430.0), vel=(100.0, 0.0))
+        self.assertEqual(lateral_risk_score(track_away, poly), 0.0)
+
+    def test_object_inside_corridor_scores_zero(self) -> None:
+        """Object already inside the corridor must score zero (path_factor handles it)."""
+        ccfg = CorridorConfig()
+        poly = build_corridor_polygon(640, 480, ccfg)
+        inside = _track(tid=4, bbox=(270.0, 280.0, 370.0, 420.0), vel=(-50.0, 0.0))
+        self.assertEqual(lateral_risk_score(inside, poly), 0.0)
+
+    def test_engine_lateral_inward_scores_higher(self) -> None:
+        """End-to-end: engine scores lateral-inward pedestrian higher than stationary."""
+        e1 = _engine()
+        e2 = _engine()
+
+        stationary = _track(tid=1, bbox=(490.0, 270.0, 610.0, 430.0), vel=(0.0, 0.0))
+        lateral    = _track(tid=2, bbox=(490.0, 270.0, 610.0, 430.0), vel=(-200.0, 0.0))
+
+        r_stat = e1.update([stationary], _FRAME, _T0)
+        r_lat  = e2.update([lateral],   _FRAME, _T0)
+
+        self.assertTrue(r_stat, "Stationary track produced no hazards")
+        self.assertTrue(r_lat,  "Lateral track produced no hazards")
+        self.assertGreater(
+            r_lat[0].risk_score,
+            r_stat[0].risk_score,
+            f"lateral={r_lat[0].risk_score:.3f} should > stationary={r_stat[0].risk_score:.3f}",
+        )
 
 
 if __name__ == "__main__":

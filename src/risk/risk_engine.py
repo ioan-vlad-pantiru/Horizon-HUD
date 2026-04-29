@@ -36,6 +36,7 @@ from src.risk.risk_features import (
     erratic_score,
     focal_length_from_fov,
     fused_closing_speed_m,
+    lateral_risk_score,
     ttc_proxy,
 )
 from src.risk.risk_types import (
@@ -277,6 +278,7 @@ class RiskEngineV1:
         r_dist = _distance_risk(dist_m, cfg)
         r_class = cfg.class_prior.get(label, cfg.class_prior.get("default", 0.5))
         r_erratic = erratic_score(hist)
+        r_lateral = lateral_risk_score(tr, poly, comp_vel, cfg.lateral_ttc_s)
         conf = confidence_factor(tr)
 
         raw = (
@@ -285,6 +287,7 @@ class RiskEngineV1:
             + cfg.w_path * path_factor
             + cfg.w_class * r_class
             + cfg.w_erratic * r_erratic
+            + cfg.w_lateral * r_lateral
         )
         raw = max(0.0, min(raw * conf, 1.0))
 
@@ -374,6 +377,7 @@ def risk_config_from_dict(d: dict) -> RiskConfig:
     kwargs: dict = {
         k: d[k] for k in (
             "w_ttc", "w_distance", "w_path", "w_class", "w_erratic",
+            "w_lateral", "lateral_ttc_s",
             "ttc_critical_s", "ttc_high_s", "ttc_medium_s", "ttc_max_s",
             "fov_deg",
             "distance_near_m", "distance_max_m",
