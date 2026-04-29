@@ -470,7 +470,7 @@ def main() -> None:
             )
 
             # ── motion compensation ───────────────────────────────────────────
-            ego_dx, ego_dy = compensator.update_orientation(orient)
+            ego_dx, ego_dy = compensator.update_orientation(orient, frame_w=fw, frame_h=fh)
             comp_vels: dict[int, tuple[float, float]] = {}
             if compensator.enabled:
                 new_tracks = []
