@@ -160,11 +160,18 @@ class SORTTracker:
     iou_thresh : float
         Minimum IoU for a detection–track match.
     max_age : int
-        Frames (predict calls) before an unmatched track is removed.
+        Maximum number of frames an unmatched track is kept alive before
+        it is pruned.  Combined with *frame_duration_s*, the keep-alive
+        window in seconds is ``max_age * frame_duration_s``.
     min_hits : int
         Minimum consecutive hits before a track is reported.
     nms_thresh : float
         NMS IoU threshold applied before tracking.
+    frame_duration_s : float
+        Expected duration of one frame in seconds (default 1/30 for 30 fps).
+        Used to convert the frame-count ``max_age`` into a seconds threshold
+        for ``time_since_update`` pruning.  Adjust when running at a fixed
+        non-30-fps rate (e.g. ``1/15`` for 15 fps on Raspberry Pi).
     """
 
     def __init__(
@@ -173,11 +180,13 @@ class SORTTracker:
         max_age: int = 5,
         min_hits: int = 2,
         nms_thresh: float = 0.45,
+        frame_duration_s: float = 1 / 30,
     ) -> None:
         self.iou_thresh = iou_thresh
         self.max_age = max_age
         self.min_hits = min_hits
         self.nms_thresh = nms_thresh
+        self.frame_duration_s = frame_duration_s
         self._tracks: list[_KalmanTrack] = []
 
     def update(self, detections: list[Detection], timestamp: float) -> list[Track]:
@@ -203,9 +212,10 @@ class SORTTracker:
             if d_i not in matched_d:
                 self._tracks.append(_KalmanTrack(det, timestamp))
 
+        max_staleness_s = self.max_age * self.frame_duration_s
         self._tracks = [
             t for i, t in enumerate(self._tracks)
-            if i in matched_t or t.time_since_update < self.max_age * 0.1
+            if i in matched_t or t.time_since_update < max_staleness_s
         ]
 
         return [t.to_track() for t in self._tracks if t.hits >= self.min_hits]
