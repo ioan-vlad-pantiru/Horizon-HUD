@@ -1,0 +1,43 @@
+name: CI / Deploy → Raspberry Pi 5
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── 1. Run the full test suite on the Pi itself ────────────────────────────
+  test:
+    name: Test (RPi 5 ARM64)
+    runs-on: self-hosted
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install / sync dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --upgrade pip --quiet
+          .venv/bin/pip install -r requirements.txt --quiet
+
+      - name: Run test suite
+        run: .venv/bin/python -m pytest src/tests/ -v --tb=short
+
+      - name: FPS benchmark (informational)
+        run: .venv/bin/python scripts/benchmark_fps.py
+
+  # ── 2. Deploy only when a commit lands on main ────────────────────────────
+  deploy:
+    name: Deploy
+    runs-on: self-hosted
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Restart horizon-hud service
+        run: sudo systemctl restart horizon-hud
+
+      - name: Verify service is running
+        run: |
+          sleep 3
+          systemctl is-active --quiet horizon-hud && echo "Service is up" || (journalctl -u horizon-hud -n 20 && exit 1)

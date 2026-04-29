@@ -1,0 +1,18 @@
+[Unit]
+Description=Horizon HUD – motorcycle ADAS heads-up display
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Horizon-HUD
+ExecStart=/home/pi/Horizon-HUD/.venv/bin/python -m src.main --source webcam --jsonl /home/pi/logs/horizon-hud.jsonl
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+# Give the camera time to be ready after boot
+ExecStartPre=/bin/sleep 3
+
+[Install]
+WantedBy=multi-user.target
