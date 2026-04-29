@@ -38,11 +38,12 @@ class RiskConfig:
     """All tunable parameters for RiskEngineV1."""
 
     # ── scoring weights (should sum to ~1.0) ──────────────────────────────────
-    w_ttc: float = 0.40
-    w_distance: float = 0.25
+    w_ttc: float = 0.35
+    w_distance: float = 0.20
     w_path: float = 0.20
     w_class: float = 0.10
     w_erratic: float = 0.05
+    w_lateral: float = 0.10    # lateral closing speed toward corridor centreline
 
     # ── TTC breakpoints (seconds) ─────────────────────────────────────────────
     # Piecewise linear: 1.0 at <=critical, 0.7 at high, 0.3 at medium, 0.0 at max
@@ -50,6 +51,9 @@ class RiskConfig:
     ttc_high_s: float = 3.0
     ttc_medium_s: float = 6.0
     ttc_max_s: float = 12.0
+
+    # ── lateral risk ──────────────────────────────────────────────────────────
+    lateral_ttc_s: float = 2.0   # lateral time-to-centreline threshold (seconds)
 
     # ── distance calibration ──────────────────────────────────────────────────
     fov_deg: float = 70.0
