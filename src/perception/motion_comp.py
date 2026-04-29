@@ -68,6 +68,8 @@ class MotionCompensator:
         self.fov_deg = fov_deg
         self.enabled = enabled
         self._prev_orient: Orientation | None = None
+        self._fw: int = 640
+        self._fh: int = 480
 
     def toggle(self) -> bool:
         self.enabled = not self.enabled
@@ -79,11 +81,30 @@ class MotionCompensator:
             return self._K
         return default_K(fw, fh, self.fov_deg)
 
-    def update_orientation(self, orient: Orientation) -> tuple[float, float]:
+    def update_orientation(
+        self,
+        orient: Orientation,
+        frame_w: int | None = None,
+        frame_h: int | None = None,
+    ) -> tuple[float, float]:
         """Store new orientation and return (dx, dy) ego-motion offset in pixels.
+
+        Parameters
+        ----------
+        orient : Orientation
+            Latest orientation estimate from the IMU.
+        frame_w : int | None
+            Frame width in pixels.  Updates the stored value when provided.
+        frame_h : int | None
+            Frame height in pixels.  Updates the stored value when provided.
 
         Returns (0, 0) when disabled or on the very first frame.
         """
+        if frame_w is not None:
+            self._fw = frame_w
+        if frame_h is not None:
+            self._fh = frame_h
+
         if self._prev_orient is None or not self.enabled:
             self._prev_orient = orient
             return 0.0, 0.0
@@ -93,10 +114,12 @@ class MotionCompensator:
         dy = orient.yaw - self._prev_orient.yaw
         self._prev_orient = orient
         self._delta_rpy = (dr, dp, dy)
-        return self._compute_offset(dr, dp, dy)
+        return self._compute_offset(dr, dp, dy, self._fw, self._fh)
 
-    def _compute_offset(self, dr: float, dp: float, dy: float) -> tuple[float, float]:
-        K = self._get_K(640, 480)
+    def _compute_offset(
+        self, dr: float, dp: float, dy: float, frame_w: int, frame_h: int
+    ) -> tuple[float, float]:
+        K = self._get_K(frame_w, frame_h)
         R = _rotation_matrix(dr, dp, dy)
         H = K @ R @ np.linalg.inv(K)
         cx = K[0, 2]
