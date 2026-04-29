@@ -11,8 +11,9 @@ detector:
 
 tracker:
   iou_thresh: 0.3
-  max_age: 5
+  max_age: 5           # unmatched track kept alive for max_age * frame_duration_s seconds
   min_hits: 2
+  frame_duration_s: 0.0333   # 1/30 s — adjust for target fps (e.g. 0.0667 for 15 fps)
 
 imu:
   source: simulator    # simulator | phone | hardware  (overridden by --imu flag)
