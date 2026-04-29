@@ -160,20 +160,56 @@ def ttc_proxy(
 # ── erratic motion ────────────────────────────────────────────────────────────
 
 def erratic_score(history: deque[TrackSnapshot]) -> float:
-    """Normalised velocity-magnitude variance, in [0, 1].
+    """Blended erratic score: speed variance + heading change variance, in [0, 1].
 
-    High values indicate sudden acceleration/deceleration.
-    A standard deviation of ≥ 80 px/s maps to ~1.0.
+    Speed component:
+        Standard deviation of velocity magnitude, normalised so that
+        std ≥ 80 px/s → 1.0.  Captures sudden acceleration/deceleration.
+
+    Heading component:
+        Standard deviation of consecutive heading changes (in radians/step),
+        normalised so that std ≥ π/4 rad/step → 1.0.  Captures swerving
+        even when speed is roughly constant.
+
+    Final score: 0.5 * speed_component + 0.5 * heading_component.
+    Returns 0.0 when history has fewer than 3 snapshots.
     """
     if len(history) < 3:
         return 0.0
+
+    # ── speed component ───────────────────────────────────────────────────────
     speeds = [
         math.sqrt(s.velocity_px_s[0] ** 2 + s.velocity_px_s[1] ** 2)
         for s in history
     ]
-    mean = sum(speeds) / len(speeds)
-    variance = sum((s - mean) ** 2 for s in speeds) / len(speeds)
-    return min(math.sqrt(variance) / 80.0, 1.0)
+    mean_spd = sum(speeds) / len(speeds)
+    var_spd = sum((s - mean_spd) ** 2 for s in speeds) / len(speeds)
+    speed_component = min(math.sqrt(var_spd) / 80.0, 1.0)
+
+    # ── heading component ─────────────────────────────────────────────────────
+    # Compute heading for each snapshot where speed is non-negligible.
+    headings = [
+        math.atan2(s.velocity_px_s[1], s.velocity_px_s[0])
+        for s in history
+        if math.sqrt(s.velocity_px_s[0] ** 2 + s.velocity_px_s[1] ** 2) > 1e-3
+    ]
+
+    if len(headings) < 2:
+        heading_component = 0.0
+    else:
+        # Angular differences wrapped to (-π, π]
+        diffs = []
+        for i in range(1, len(headings)):
+            d = headings[i] - headings[i - 1]
+            # Wrap to (-π, π] via atan2(sin, cos)
+            d = math.atan2(math.sin(d), math.cos(d))
+            diffs.append(d)
+        mean_d = sum(diffs) / len(diffs)
+        var_d = sum((d - mean_d) ** 2 for d in diffs) / len(diffs)
+        # Normalise: std of π/4 rad/step ≈ 1.0
+        heading_component = min(math.sqrt(var_d) / (math.pi / 4.0), 1.0)
+
+    return 0.5 * speed_component + 0.5 * heading_component
 
 
 # ── track confidence ──────────────────────────────────────────────────────────
