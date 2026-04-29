@@ -134,6 +134,7 @@ def _build_pipeline(cfg: dict[str, Any], imu_source: str = "simulator") -> tuple
         max_age=trk_cfg.get("max_age", 5),
         min_hits=trk_cfg.get("min_hits", 2),
         nms_thresh=det_cfg.get("nms_thresh", 0.45),
+        frame_duration_s=trk_cfg.get("frame_duration_s", 1 / 30),
     )
 
     imu = _create_imu(imu_source, cfg)
@@ -496,7 +497,7 @@ def main() -> None:
             )
 
             # ── motion compensation ───────────────────────────────────────────
-            ego_dx, ego_dy = compensator.update_orientation(orient)
+            ego_dx, ego_dy = compensator.update_orientation(orient, frame_w=fw, frame_h=fh)
             comp_vels: dict[int, tuple[float, float]] = {}
             if compensator.enabled:
                 new_tracks = []
