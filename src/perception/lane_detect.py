@@ -23,16 +23,17 @@ import numpy as np
 class LaneDetector:
     def __init__(
         self,
-        roi_top_ratio: float = 0.50,
+        roi_top_ratio: float = 0.55,
         canny_low: int = 50,
         canny_high: int = 150,
-        hough_threshold: int = 15,
-        hough_min_length: int = 30,
-        hough_max_gap: int = 25,
-        slope_min: float = 0.3,
-        slope_max: float = 3.0,
-        ema_alpha: float = 0.40,
-        stale_frames: int = 8,
+        hough_threshold: int = 25,
+        hough_min_length: int = 50,
+        hough_max_gap: int = 20,
+        slope_min: float = 0.4,
+        slope_max: float = 2.5,
+        min_lines_per_side: int = 2,
+        ema_alpha: float = 0.15,
+        stale_frames: int = 10,
     ) -> None:
         self._roi_top = roi_top_ratio
         self._canny_low = canny_low
@@ -42,6 +43,7 @@ class LaneDetector:
         self._hough_gap = hough_max_gap
         self._slope_min = slope_min
         self._slope_max = slope_max
+        self._min_lines = min_lines_per_side
         self._alpha = ema_alpha
         self._stale_frames = stale_frames
 
@@ -131,7 +133,7 @@ class LaneDetector:
                              (int(x2), int(y2) + roi_y_offset),
                              (80, 80, 255), 1)
 
-        if not left_pts or not right_pts:
+        if len(left_pts) < self._min_lines or len(right_pts) < self._min_lines:
             return None
 
         left_line = self._average_line(left_pts, roi_h)
@@ -143,10 +145,11 @@ class LaneDetector:
         lx_bot, lx_top = left_line
         rx_bot, rx_top = right_line
 
-        if lx_bot >= rx_bot:
+        lane_width_bot = rx_bot - lx_bot
+        if lx_bot >= rx_bot or lane_width_bot < roi_w * 0.10 or lane_width_bot > roi_w * 0.85:
             return None
-        if lx_top > rx_top:
-            lx_top, rx_top = rx_top, lx_top
+        if lx_top >= rx_top:
+            return None
 
         if debug_frame is not None:
             cv2.line(debug_frame,
