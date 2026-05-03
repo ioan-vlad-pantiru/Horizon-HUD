@@ -311,10 +311,40 @@ def _jsonl_record(
             "in_corridor": ra.in_corridor,
             "reasons": ra.reasons,
         })
-    return json.dumps(record)
+    return json.dumps(record, default=lambda x: float(x) if hasattr(x, 'item') else x)
 
 
 # ── camera utilities ───────────────────────────────────────────────────────────
+
+class _Picamera2Capture:
+    """Minimal cv2.VideoCapture-compatible wrapper around picamera2."""
+
+    def __init__(self, width: int = 640, height: int = 480) -> None:
+        from picamera2 import Picamera2
+        self._cam = Picamera2()
+        config = self._cam.create_video_configuration(
+            main={"size": (width, height), "format": "RGB888"}
+        )
+        self._cam.configure(config)
+        self._cam.start()
+        self._opened = True
+
+    def isOpened(self) -> bool:
+        return self._opened
+
+    def read(self) -> tuple[bool, Optional[np.ndarray]]:
+        try:
+            frame = self._cam.capture_array()
+            bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            return True, bgr
+        except Exception:
+            return False, None
+
+    def release(self) -> None:
+        if self._opened:
+            self._cam.stop()
+            self._opened = False
+
 
 def _list_cameras_darwin() -> None:
     """Print available camera indices on macOS by probing 0-4."""
@@ -371,20 +401,29 @@ def main() -> None:
 
     # ── open video source ──────────────────────────────────────────────────────
     src_lower = args.source.lower()
-    if src_lower == "webcam":
-        cam_index = 0
-    elif src_lower.lstrip("-").isdigit():
-        cam_index = int(args.source)
+    if src_lower == "picamera2":
+        try:
+            cap = _Picamera2Capture()
+        except Exception as exc:
+            logger.error("Failed to open picamera2: %s", exc)
+            sys.exit(1)
+        is_webcam = True
+        source = "picamera2"
     else:
-        cam_index = None   # file path
+        if src_lower == "webcam":
+            cam_index = 0
+        elif src_lower.lstrip("-").isdigit():
+            cam_index = int(args.source)
+        else:
+            cam_index = None   # file path
 
-    is_webcam = cam_index is not None
-    source = cam_index if is_webcam else args.source
+        is_webcam = cam_index is not None
+        source = cam_index if is_webcam else args.source
 
-    if is_webcam and sys.platform == "darwin":
-        cap = cv2.VideoCapture(source, cv2.CAP_AVFOUNDATION)
-    else:
-        cap = cv2.VideoCapture(source)
+        if is_webcam and sys.platform == "darwin":
+            cap = cv2.VideoCapture(source, cv2.CAP_AVFOUNDATION)
+        else:
+            cap = cv2.VideoCapture(source)
 
     if not cap.isOpened():
         logger.error("Cannot open video source: %s", args.source)

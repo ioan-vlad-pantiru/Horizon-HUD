@@ -4,9 +4,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/Horizon-HUD
-ExecStart=/home/pi/Horizon-HUD/.venv/bin/python -m src.main --source webcam --jsonl /home/pi/logs/horizon-hud.jsonl
+User=horizon
+WorkingDirectory=/home/horizon/Horizon-HUD
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/horizon/.Xauthority
+ExecStart=/home/horizon/Horizon-HUD/.venv/bin/python -m src.main --source picamera2 --jsonl /home/horizon/logs/horizon-hud.jsonl
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
