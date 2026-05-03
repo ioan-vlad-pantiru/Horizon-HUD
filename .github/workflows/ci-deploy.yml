@@ -34,6 +34,17 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
+      - name: Pull latest code to service directory
+        run: |
+          cd /home/horizon/Horizon-HUD
+          git fetch origin main
+          git reset --hard origin/main
+
+      - name: Sync dependencies in service venv
+        run: |
+          cd /home/horizon/Horizon-HUD
+          .venv/bin/pip install -r requirements.txt --quiet
+
       - name: Restart horizon-hud service
         run: sudo systemctl restart horizon-hud
 
