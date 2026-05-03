@@ -39,6 +39,7 @@ import numpy as np
 import yaml
 
 from src.perception.corridor import build_corridor_polygon, draw_corridor, yaw_to_center_x
+from src.perception.lane_detect import LaneDetector
 from src.detection.detection_tflite import DummyDetector, TFLiteDetector, create_detector
 from src.perception.imu_sim import IMUSimulator, Scenario
 from src.perception.motion_comp import MotionCompensator
@@ -232,6 +233,7 @@ def _draw_status(
     show_corridor: bool,
     frame_idx: int,
     yaw_delta: float = 0.0,
+    lane_source: str = "imu",
 ) -> None:
     h = frame.shape[0]
     rpy = (
@@ -249,6 +251,7 @@ def _draw_status(
         f"det:{detector_name}  "
         f"risk:{'ON' if show_risk else 'OFF'}  "
         f"corr:{'ON' if show_corridor else 'OFF'}  "
+        f"lane:{lane_source}  "
         f"f:{frame_idx}"
     )
     cv2.putText(frame, status, (10, h - 15),
@@ -489,6 +492,9 @@ def main() -> None:
     # ── log file ───────────────────────────────────────────────────────────────
     log_file = _open_log(cfg, args.jsonl)
 
+    # ── lane detector ──────────────────────────────────────────────────────────
+    lane_detector = LaneDetector()
+
     # ── display toggles ────────────────────────────────────────────────────────
     show_risk = True
     show_corridor = True
@@ -499,6 +505,7 @@ def main() -> None:
 
     yaw_ref: Optional[float] = None
     corridor_poly: Optional[np.ndarray] = None
+    lane_source: str = "imu"
 
     try:
         while True:
@@ -526,13 +533,28 @@ def main() -> None:
             imu_reading = imu.read(now)
             orient = orient_est.update(imu_reading)
 
-            # ── yaw-steered corridor ──────────────────────────────────────────
+            # ── yaw-steered corridor fused with lane detection ────────────────
             if yaw_ref is None:
                 yaw_ref = orient.yaw
             yaw_delta = orient.yaw - yaw_ref
-            center_x = yaw_to_center_x(yaw_delta, corridor_cfg.yaw_gain)
+            imu_cx = yaw_to_center_x(yaw_delta, corridor_cfg.yaw_gain)
+
+            lane_result = lane_detector.detect(frame)
+            if lane_result is not None:
+                lane_cx_bot, lane_cx_top = lane_result
+                center_x = lane_cx_top
+                lane_source = "lane"
+            else:
+                center_x = imu_cx
+                lane_cx_bot = corridor_cfg.center_x_ratio
+                lane_source = "imu"
+
             corridor_poly = build_corridor_polygon(
-                fw, fh, dataclasses.replace(corridor_cfg, top_center_x_ratio=center_x)
+                fw, fh, dataclasses.replace(
+                    corridor_cfg,
+                    center_x_ratio=lane_cx_bot if lane_result else corridor_cfg.center_x_ratio,
+                    top_center_x_ratio=center_x,
+                )
             )
 
             # ── motion compensation ───────────────────────────────────────────
@@ -606,6 +628,7 @@ def main() -> None:
                 detector_name,
                 show_risk, show_corridor, frame_idx,
                 yaw_delta=yaw_delta,
+                lane_source=lane_source,
             )
 
             cv2.imshow("Horizon-HUD", frame)
