@@ -1,6 +1,7 @@
 detector:
   type: tflite            # "tflite" or "dummy"
   model: models/best_int8.tflite
+  detect_every_n_frames: 3   # run detection every N frames; SORT tracks between detections
   score_thresh: 0.20
   nms_thresh: 0.45
   labels:

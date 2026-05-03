@@ -497,7 +497,7 @@ def main() -> None:
 
     # ── display toggles ────────────────────────────────────────────────────────
     show_risk = True
-    show_corridor = True
+    show_corridor = False
     show_lane_debug = False
 
     prev_time = time.monotonic()
@@ -527,7 +527,11 @@ def main() -> None:
             fh, fw = frame.shape[:2]
 
             # ── detection + tracking ──────────────────────────────────────────
-            detections = active_detector.infer(frame, now)
+            det_interval = cfg.get("detector", {}).get("detect_every_n_frames", 3)
+            if frame_idx % det_interval == 0:
+                detections = active_detector.infer(frame, now)
+            else:
+                detections = []
             tracks = tracker.update(detections, now)
 
             # ── IMU + orientation ─────────────────────────────────────────────
@@ -542,13 +546,12 @@ def main() -> None:
 
             lane_result = lane_detector.detect(frame, debug_frame=frame if show_lane_debug else None)
             if lane_result is not None:
-                lx_bot, rx_bot, lx_top, rx_top = lane_result
-                roi_y = int(fh * lane_detector._roi_top)
+                lx_bot, rx_bot, lx_top, rx_top, top_y_r, bot_y_r = lane_result
                 corridor_poly = np.array([
-                    [lx_bot * fw, float(fh)],   # BL
-                    [rx_bot * fw, float(fh)],   # BR
-                    [rx_top * fw, float(roi_y)],  # TR
-                    [lx_top * fw, float(roi_y)],  # TL
+                    [lx_bot * fw, bot_y_r * fh],
+                    [rx_bot * fw, bot_y_r * fh],
+                    [rx_top * fw, top_y_r * fh],
+                    [lx_top * fw, top_y_r * fh],
                 ], dtype=np.float32)
                 lane_source = "lane"
             else:
