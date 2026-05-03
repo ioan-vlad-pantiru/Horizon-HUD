@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time setup script for Raspberry Pi 5.
+# One-time setup script for Raspberry Pi 4 Model B.
 # Run once after cloning the repo:  bash scripts/setup_pi.sh
 set -euo pipefail
 

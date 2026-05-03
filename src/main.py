@@ -9,7 +9,7 @@ Usage:
 IMU sources:
     simulator  (default) simulated IMU with selectable scenario
     phone      iPhone streams via WebSocket – open printed URL in Safari
-    hardware   MPU-9250 on Raspberry Pi 5 via I2C (requires smbus2)
+    hardware   MPU-9250 on Raspberry Pi 4 Model B via I2C (requires smbus2)
 
 Keyboard controls:
     q  – quit

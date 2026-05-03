@@ -1,4 +1,4 @@
-"""MPU-9250 IMU reader for Raspberry Pi 5 via I2C (smbus2).
+"""MPU-9250 IMU reader for Raspberry Pi 4 Model B via I2C (smbus2).
 
 Wiring (Pi 5 GPIO header):
     SDA  -> GPIO 2  (pin 3)
@@ -68,7 +68,7 @@ class MPU9250Reader:
     Parameters
     ----------
     bus :
-        I2C bus number (1 on Raspberry Pi 5).
+        I2C bus number (1 on Raspberry Pi 4 Model B).
     address :
         MPU-9250 I2C address (0x68 when AD0=GND, 0x69 when AD0=3.3V).
     """

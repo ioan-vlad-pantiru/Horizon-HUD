@@ -1,4 +1,4 @@
-name: CI / Deploy → Raspberry Pi 5
+name: CI / Deploy → Raspberry Pi 4 Model B
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 jobs:
   # ── 1. Run the full test suite on the Pi itself ────────────────────────────
   test:
-    name: Test (RPi 5 ARM64)
+    name: Test (RPi 4B ARM64)
     runs-on: self-hosted
     steps:
       - name: Checkout
