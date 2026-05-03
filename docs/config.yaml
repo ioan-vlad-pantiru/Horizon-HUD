@@ -1,6 +1,6 @@
 detector:
   type: tflite            # "tflite" or "dummy"
-  model: models/best_float16.tflite
+  model: models/best_int8.tflite
   score_thresh: 0.20
   nms_thresh: 0.45
   labels:
