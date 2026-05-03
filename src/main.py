@@ -543,11 +543,12 @@ def main() -> None:
             lane_result = lane_detector.detect(frame, debug_frame=frame if show_lane_debug else None)
             if lane_result is not None:
                 lx_bot, rx_bot, lx_top, rx_top = lane_result
+                roi_y = int(fh * lane_detector._roi_top)
                 corridor_poly = np.array([
-                    [lx_bot * fw, float(fh)],        # BL
-                    [rx_bot * fw, float(fh)],        # BR
-                    [rx_top * fw, fh * (1 - corridor_cfg.height_ratio)],  # TR
-                    [lx_top * fw, fh * (1 - corridor_cfg.height_ratio)],  # TL
+                    [lx_bot * fw, float(fh)],   # BL
+                    [rx_bot * fw, float(fh)],   # BR
+                    [rx_top * fw, float(roi_y)],  # TR
+                    [lx_top * fw, float(roi_y)],  # TL
                 ], dtype=np.float32)
                 lane_source = "lane"
             else:

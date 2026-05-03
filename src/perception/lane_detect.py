@@ -31,7 +31,7 @@ class LaneDetector:
         hough_max_gap: int = 25,
         slope_min: float = 0.3,
         slope_max: float = 3.0,
-        ema_alpha: float = 0.20,
+        ema_alpha: float = 0.40,
         stale_frames: int = 8,
     ) -> None:
         self._roi_top = roi_top_ratio
@@ -143,8 +143,10 @@ class LaneDetector:
         lx_bot, lx_top = left_line
         rx_bot, rx_top = right_line
 
-        if lx_bot >= rx_bot or lx_top >= rx_top:
+        if lx_bot >= rx_bot:
             return None
+        if lx_top > rx_top:
+            lx_top, rx_top = rx_top, lx_top
 
         if debug_frame is not None:
             cv2.line(debug_frame,
