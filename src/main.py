@@ -553,9 +553,7 @@ def main() -> None:
                 lane_source = "lane"
             else:
                 if corridor_poly is None:
-                    corridor_poly = build_corridor_polygon(
-                        fw, fh, dataclasses.replace(corridor_cfg, top_center_x_ratio=center_x)
-                    )
+                    corridor_poly = build_corridor_polygon(fw, fh, corridor_cfg)
                 lane_source = "imu"
 
             # ── motion compensation ───────────────────────────────────────────
