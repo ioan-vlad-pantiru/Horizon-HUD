@@ -552,8 +552,7 @@ def main() -> None:
                 ], dtype=np.float32)
                 lane_source = "lane"
             else:
-                if corridor_poly is None:
-                    corridor_poly = build_corridor_polygon(fw, fh, corridor_cfg)
+                corridor_poly = build_corridor_polygon(fw, fh, corridor_cfg)
                 lane_source = "imu"
 
             # ── motion compensation ───────────────────────────────────────────
