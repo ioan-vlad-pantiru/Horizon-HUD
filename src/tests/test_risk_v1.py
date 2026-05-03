@@ -89,11 +89,14 @@ class TestFeatureMath(unittest.TestCase):
         self.assertEqual(erratic_score(h), 0.0)
 
     def test_erratic_high_variance(self) -> None:
+        # Speed alternates 500/0 px/s: high speed variance → speed_component=1.0,
+        # but heading is constant (all vx≥0) → heading_component=0.
+        # Blended score = 0.5 * 1.0 + 0.5 * 0.0 = 0.5.
         h: deque[TrackSnapshot] = deque(maxlen=8)
         for i in range(6):
             v = 500.0 if i % 2 == 0 else 0.0
             h.append(TrackSnapshot(float(i), (0,0,100,200), (v, 0.0)))
-        self.assertGreater(erratic_score(h), 0.5)
+        self.assertGreaterEqual(erratic_score(h), 0.5)
 
     def test_confidence_new_track(self) -> None:
         tr = _track(hits=1, tsu=0.0)

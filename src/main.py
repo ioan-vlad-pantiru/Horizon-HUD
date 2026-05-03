@@ -134,6 +134,7 @@ def _build_pipeline(cfg: dict[str, Any], imu_source: str = "simulator") -> tuple
         max_age=trk_cfg.get("max_age", 5),
         min_hits=trk_cfg.get("min_hits", 2),
         nms_thresh=det_cfg.get("nms_thresh", 0.45),
+        frame_duration_s=trk_cfg.get("frame_duration_s", 1 / 30),
     )
 
     imu = _create_imu(imu_source, cfg)
@@ -310,10 +311,40 @@ def _jsonl_record(
             "in_corridor": ra.in_corridor,
             "reasons": ra.reasons,
         })
-    return json.dumps(record)
+    return json.dumps(record, default=lambda x: float(x) if hasattr(x, 'item') else x)
 
 
 # ── camera utilities ───────────────────────────────────────────────────────────
+
+class _Picamera2Capture:
+    """Minimal cv2.VideoCapture-compatible wrapper around picamera2."""
+
+    def __init__(self, width: int = 640, height: int = 480) -> None:
+        from picamera2 import Picamera2
+        self._cam = Picamera2()
+        config = self._cam.create_video_configuration(
+            main={"size": (width, height), "format": "RGB888"}
+        )
+        self._cam.configure(config)
+        self._cam.start()
+        self._opened = True
+
+    def isOpened(self) -> bool:
+        return self._opened
+
+    def read(self) -> tuple[bool, Optional[np.ndarray]]:
+        try:
+            frame = self._cam.capture_array()
+            bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            return True, bgr
+        except Exception:
+            return False, None
+
+    def release(self) -> None:
+        if self._opened:
+            self._cam.stop()
+            self._opened = False
+
 
 def _list_cameras_darwin() -> None:
     """Print available camera indices on macOS by probing 0-4."""
@@ -348,6 +379,11 @@ def main() -> None:
                         help="IMU source: simulator (default), phone, or hardware")
     parser.add_argument("--jsonl", default=None,
                         help="Optional output JSONL path (overrides config log)")
+    parser.add_argument("--eval", action="store_true",
+                        help="Enable evaluation mode: print TP/FP/lead-time stats at shutdown")
+    parser.add_argument("--gt", default=None, metavar="PATH",
+                        help="Ground-truth JSONL for --eval mode.  Each record: "
+                             '{"frame": N, "hazard_ids": [...]}')
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -365,20 +401,29 @@ def main() -> None:
 
     # ── open video source ──────────────────────────────────────────────────────
     src_lower = args.source.lower()
-    if src_lower == "webcam":
-        cam_index = 0
-    elif src_lower.lstrip("-").isdigit():
-        cam_index = int(args.source)
+    if src_lower == "picamera2":
+        try:
+            cap = _Picamera2Capture()
+        except Exception as exc:
+            logger.error("Failed to open picamera2: %s", exc)
+            sys.exit(1)
+        is_webcam = True
+        source = "picamera2"
     else:
-        cam_index = None   # file path
+        if src_lower == "webcam":
+            cam_index = 0
+        elif src_lower.lstrip("-").isdigit():
+            cam_index = int(args.source)
+        else:
+            cam_index = None   # file path
 
-    is_webcam = cam_index is not None
-    source = cam_index if is_webcam else args.source
+        is_webcam = cam_index is not None
+        source = cam_index if is_webcam else args.source
 
-    if is_webcam and sys.platform == "darwin":
-        cap = cv2.VideoCapture(source, cv2.CAP_AVFOUNDATION)
-    else:
-        cap = cv2.VideoCapture(source)
+        if is_webcam and sys.platform == "darwin":
+            cap = cv2.VideoCapture(source, cv2.CAP_AVFOUNDATION)
+        else:
+            cap = cv2.VideoCapture(source)
 
     if not cap.isOpened():
         logger.error("Cannot open video source: %s", args.source)
@@ -419,6 +464,27 @@ def main() -> None:
         if isinstance(active_detector, TFLiteDetector) and active_detector.is_real
         else "dummy"
     )
+
+    # ── eval mode ─────────────────────────────────────────────────────────────
+    gt_index: dict[int, set[int]] = {}   # frame_idx → set of hazardous track IDs
+    if args.eval and args.gt:
+        with open(args.gt) as _gt_f:
+            for _line in _gt_f:
+                _line = _line.strip()
+                if _line:
+                    _rec = json.loads(_line)
+                    gt_index[int(_rec["frame"])] = set(_rec.get("hazard_ids", []))
+        logger.info("Loaded GT for %d frames from %s", len(gt_index), args.gt)
+    elif args.eval:
+        logger.warning("--eval set but no --gt provided; TP/FP metrics will be trivially 0.")
+
+    # Eval accumulators (only used when --eval is set)
+    _eval_tp_frames = 0   # frames where HIGH/CRITICAL fired AND GT hazard present
+    _eval_fp_frames = 0   # frames where HIGH/CRITICAL fired AND no GT hazard
+    _eval_fn_frames = 0   # frames where GT hazard present AND no HIGH/CRITICAL
+    # lead_times[track_id] = (gt_first_frame, alert_first_frame)
+    _eval_gt_first: dict[int, int] = {}
+    _eval_alert_first: dict[int, int] = {}
 
     # ── log file ───────────────────────────────────────────────────────────────
     log_file = _open_log(cfg, args.jsonl)
@@ -470,7 +536,7 @@ def main() -> None:
             )
 
             # ── motion compensation ───────────────────────────────────────────
-            ego_dx, ego_dy = compensator.update_orientation(orient)
+            ego_dx, ego_dy = compensator.update_orientation(orient, frame_w=fw, frame_h=fh)
             comp_vels: dict[int, tuple[float, float]] = {}
             if compensator.enabled:
                 new_tracks = []
@@ -499,6 +565,30 @@ def main() -> None:
                 corridor_center_x=center_x,
             )
             top_ids = {ra.track_id for ra in hazards}
+
+            # ── eval mode tracking ────────────────────────────────────────────
+            if args.eval:
+                gt_hazard_ids = gt_index.get(frame_idx, set())
+                # Record GT first-seen per hazard track
+                for tid in gt_hazard_ids:
+                    if tid not in _eval_gt_first:
+                        _eval_gt_first[tid] = frame_idx
+                # Record alert first-seen per track
+                alerted_ids = {
+                    ra.track_id for ra in hazards
+                    if ra.risk_level in ("HIGH", "CRITICAL")
+                }
+                for tid in alerted_ids:
+                    if tid not in _eval_alert_first:
+                        _eval_alert_first[tid] = frame_idx
+                # Frame-level TP/FP/FN
+                if alerted_ids:
+                    if gt_hazard_ids:
+                        _eval_tp_frames += 1
+                    else:
+                        _eval_fp_frames += 1
+                elif gt_hazard_ids:
+                    _eval_fn_frames += 1
 
             # ── visualisation ─────────────────────────────────────────────────
             if show_corridor and corridor_poly is not None:
@@ -563,6 +653,34 @@ def main() -> None:
         if hasattr(imu, "close"):
             imu.close()
         logger.info("Shutdown complete  frames=%d", frame_idx)
+
+        if args.eval:
+            total_alert_frames = _eval_tp_frames + _eval_fp_frames
+            total_gt_frames = _eval_tp_frames + _eval_fn_frames
+            tpr = _eval_tp_frames / total_gt_frames if total_gt_frames > 0 else float("nan")
+            fpr = _eval_fp_frames / max(frame_idx - total_gt_frames, 1)
+
+            # Lead time: GT first-seen → alert first-seen, for tracks in both sets
+            lead_times = []
+            for tid, gt_f in _eval_gt_first.items():
+                alert_f = _eval_alert_first.get(tid)
+                if alert_f is not None:
+                    lead_times.append(alert_f - gt_f)
+            mean_lead = sum(lead_times) / len(lead_times) if lead_times else float("nan")
+
+            print("\n" + "=" * 52)
+            print("EVAL SUMMARY")
+            print("=" * 52)
+            print(f"  Total frames processed    : {frame_idx}")
+            print(f"  Frames with GT hazard     : {total_gt_frames}")
+            print(f"  Frames with alert fired   : {total_alert_frames}")
+            print(f"  True positive frames (TP) : {_eval_tp_frames}")
+            print(f"  False positive frames (FP): {_eval_fp_frames}")
+            print(f"  False negative frames (FN): {_eval_fn_frames}")
+            print(f"  True positive rate (TPR)  : {tpr:.3f}" if tpr == tpr else "  True positive rate (TPR)  : n/a (no GT hazards)")
+            print(f"  False positive rate (FPR) : {fpr:.3f}")
+            print(f"  Mean lead time            : {mean_lead:.1f} frames" if mean_lead == mean_lead else "  Mean lead time            : n/a")
+            print("=" * 52)
 
 
 if __name__ == "__main__":

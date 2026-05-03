@@ -160,20 +160,132 @@ def ttc_proxy(
 # ── erratic motion ────────────────────────────────────────────────────────────
 
 def erratic_score(history: deque[TrackSnapshot]) -> float:
-    """Normalised velocity-magnitude variance, in [0, 1].
+    """Blended erratic score: speed variance + heading change variance, in [0, 1].
 
-    High values indicate sudden acceleration/deceleration.
-    A standard deviation of ≥ 80 px/s maps to ~1.0.
+    Speed component:
+        Standard deviation of velocity magnitude, normalised so that
+        std ≥ 80 px/s → 1.0.  Captures sudden acceleration/deceleration.
+
+    Heading component:
+        Standard deviation of consecutive heading changes (in radians/step),
+        normalised so that std ≥ π/4 rad/step → 1.0.  Captures swerving
+        even when speed is roughly constant.
+
+    Final score: 0.5 * speed_component + 0.5 * heading_component.
+    Returns 0.0 when history has fewer than 3 snapshots.
     """
     if len(history) < 3:
         return 0.0
+
+    # ── speed component ───────────────────────────────────────────────────────
     speeds = [
         math.sqrt(s.velocity_px_s[0] ** 2 + s.velocity_px_s[1] ** 2)
         for s in history
     ]
-    mean = sum(speeds) / len(speeds)
-    variance = sum((s - mean) ** 2 for s in speeds) / len(speeds)
-    return min(math.sqrt(variance) / 80.0, 1.0)
+    mean_spd = sum(speeds) / len(speeds)
+    var_spd = sum((s - mean_spd) ** 2 for s in speeds) / len(speeds)
+    speed_component = min(math.sqrt(var_spd) / 80.0, 1.0)
+
+    # ── heading component ─────────────────────────────────────────────────────
+    # Compute heading for each snapshot where speed is non-negligible.
+    headings = [
+        math.atan2(s.velocity_px_s[1], s.velocity_px_s[0])
+        for s in history
+        if math.sqrt(s.velocity_px_s[0] ** 2 + s.velocity_px_s[1] ** 2) > 1e-3
+    ]
+
+    if len(headings) < 2:
+        heading_component = 0.0
+    else:
+        # Angular differences wrapped to (-π, π]
+        diffs = []
+        for i in range(1, len(headings)):
+            d = headings[i] - headings[i - 1]
+            # Wrap to (-π, π] via atan2(sin, cos)
+            d = math.atan2(math.sin(d), math.cos(d))
+            diffs.append(d)
+        mean_d = sum(diffs) / len(diffs)
+        var_d = sum((d - mean_d) ** 2 for d in diffs) / len(diffs)
+        # Normalise: std of π/4 rad/step ≈ 1.0
+        heading_component = min(math.sqrt(var_d) / (math.pi / 4.0), 1.0)
+
+    return 0.5 * speed_component + 0.5 * heading_component
+
+
+# ── lateral risk ─────────────────────────────────────────────────────────────
+
+def lateral_risk_score(
+    track: Track,
+    corridor_poly: "np.ndarray",
+    compensated_vel: Optional[tuple[float, float]] = None,
+    lateral_ttc_s: float = 2.0,
+) -> float:
+    """Score in [0, 1] for lateral motion directed toward the corridor centreline.
+
+    High when: the object is outside the corridor AND moving inward (toward the
+    centreline) fast enough to intersect within *lateral_ttc_s* seconds.
+
+    Returns 0 when:
+      - The object is already inside the corridor (path_factor handles this).
+      - The object is moving away from or parallel to the centreline.
+      - The object is outside the corridor's vertical span.
+
+    Parameters
+    ----------
+    track
+        Current track state (bbox and velocity).
+    corridor_poly
+        4×2 float array [BL, BR, TR, TL] from build_corridor_polygon.
+    compensated_vel
+        Ego-motion-compensated (vx, vy) in px/s.  Falls back to
+        track.velocity_px_s when None.
+    lateral_ttc_s
+        Time-to-intersect threshold in seconds.  Objects whose lateral
+        trajectory would cross the centreline within this window get a
+        non-zero score.
+    """
+    import numpy as _np  # lazy import — keeps risk_features importable without numpy
+
+    vx, _ = compensated_vel if compensated_vel is not None else track.velocity_px_s
+    cx = (track.bbox_xyxy[0] + track.bbox_xyxy[2]) / 2.0
+    foot_y = float(track.bbox_xyxy[3])
+
+    # ── interpolate corridor edges at foot_y ──────────────────────────────────
+    bot_y = float(corridor_poly[0, 1])
+    top_y = float(corridor_poly[3, 1])
+
+    if foot_y < top_y or foot_y > bot_y:
+        return 0.0
+
+    span = bot_y - top_y
+    if span < 1e-6:
+        return 0.0
+
+    t = (foot_y - top_y) / span   # 0 at top, 1 at bottom
+    left_x = float(corridor_poly[3, 0]) + t * (float(corridor_poly[0, 0]) - float(corridor_poly[3, 0]))
+    right_x = float(corridor_poly[2, 0]) + t * (float(corridor_poly[1, 0]) - float(corridor_poly[2, 0]))
+
+    center_x = (left_x + right_x) / 2.0
+    half_w = (right_x - left_x) / 2.0
+
+    signed_dist = cx - center_x
+
+    # ── inside corridor: handled by path_factor ───────────────────────────────
+    if abs(signed_dist) <= half_w:
+        return 0.0
+
+    # ── lateral closing speed toward centreline (positive = approaching) ──────
+    lateral_closing = -vx * math.copysign(1.0, signed_dist)
+
+    if lateral_closing <= 0.0:
+        return 0.0
+
+    tti = abs(signed_dist) / lateral_closing   # seconds
+
+    if tti >= lateral_ttc_s:
+        return 0.0
+
+    return 1.0 - tti / lateral_ttc_s
 
 
 # ── track confidence ──────────────────────────────────────────────────────────

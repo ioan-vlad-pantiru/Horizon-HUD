@@ -59,18 +59,116 @@ python -m src.main --source webcam --jsonl out.jsonl
 python -m pytest src/tests/ -v
 ```
 
+Key test files:
+
+| File | What it covers |
+|------|----------------|
+| `src/tests/test_risk_engine_v1.py` | `RiskEngineV1` (deployed engine) — monotonicity, hysteresis, persistence gate, corridor, score bounds, lateral risk |
+| `src/tests/test_risk_v1.py` | Feature math, component scorers, corridor geometry, hysteresis/persistence units |
+| `src/tests/test_motion_math.py` | Camera matrix, rotation math, motion compensator |
+
+## Evaluation
+
+### Collect ground-truth distances
+
+Place known objects at measured distances from the camera (tape measure or LiDAR). Record a short video clip and annotate a CSV:
+
+```
+frame,bbox_x1,bbox_y1,bbox_x2,bbox_y2,true_distance_m,label
+1,200,100,300,380,8.5,pedestrian
+2,180,120,310,410,6.2,pedestrian
+```
+
+### Run distance validation
+
+```bash
+python scripts/validate_distance.py --csv ground_truth.csv
+# Sweep FOV to minimise RMSE:
+python scripts/validate_distance.py --csv ground_truth.csv --fov 65
+# Save scatter plot:
+python scripts/validate_distance.py --csv ground_truth.csv --plot
+```
+
+### Run the ablation study
+
+First produce a telemetry log:
+
+```bash
+python -m src.main --source video.mp4 --jsonl run.jsonl
+```
+
+Then replay under ablation conditions:
+
+```bash
+python scripts/ablation_study.py --log run.jsonl
+```
+
+Prints a markdown table comparing CRITICAL/HIGH alert counts and latency across five conditions: baseline, no ego-motion, no corridor, no persistence gate, no hysteresis.
+
+### Run the FPS benchmark
+
+```bash
+python scripts/benchmark_fps.py --model models/best_int8.tflite
+python scripts/benchmark_fps.py --model models/best_float16.tflite
+```
+
+Prints per-component mean/std latency and % of 30-fps frame budget. Use with both quantised and float models to report quantisation impact.
+
+### Export per-run summary CSV
+
+```bash
+python scripts/summarise_log.py --log run.jsonl --out summary.csv
+```
+
+### Evaluate against ground truth
+
+Annotate a JSONL file with hazardous track IDs per frame:
+
+```json
+{"frame": 42, "hazard_ids": [3, 7]}
+{"frame": 43, "hazard_ids": [3]}
+```
+
+Then run with `--eval`:
+
+```bash
+python -m src.main --source video.mp4 --gt gt.jsonl --eval
+```
+
+At shutdown, prints TPR, FPR, and mean lead time.
+
 ## Architecture
 
 ```
 src/
-  types.py              Core dataclasses (Detection, Track, IMUReading, Orientation, RiskAssessment)
-  detection_tflite.py   TFLite detector with DummyDetector fallback
-  tracking_sort.py      SORT tracker (Kalman + IoU + Hungarian)
-  imu_sim.py            Simulated IMU with 4 driving scenarios
-  orientation.py        Complementary filter (gyro + accel + mag)
-  motion_comp.py        Ego-motion compensation via orientation deltas
-  risk.py               Risk scoring engine (proximity, closing speed, TTC, lateral, accel)
-  main.py               Pipeline runner and visualization
+  core/types.py              Core dataclasses (Detection, Track, IMUReading, Orientation)
+  detection/
+    detection_tflite.py      TFLite detector with DummyDetector fallback
+    tracking_sort.py         SORT tracker (Kalman + IoU + Hungarian)
+  perception/
+    imu_sim.py               Simulated IMU with 4 driving scenarios
+    hardware_imu.py          MPU-9250 reader for Raspberry Pi
+    iphone_imu.py            iPhone IMU via WebSocket bridge
+    orientation.py           Complementary filter (gyro + accel + mag)
+    motion_comp.py           Ego-motion compensation via orientation deltas
+    corridor.py              Trapezoid corridor geometry and membership scoring
+  risk/
+    risk_features.py         Physics proxies: distance, TTC, closing speed, lateral risk, erratic score
+    risk_types.py            RiskConfig, CorridorConfig, RiskAssessmentV1 dataclasses
+    risk_engine.py           RiskEngineV1 — weighted scoring, EMA, hysteresis, persistence gate
+    risk.py                  Legacy RiskEngine V0 (retained for reference)
+  tests/
+    test_risk_engine_v1.py   RiskEngineV1 unit and integration tests (deployed engine)
+    test_risk_v1.py          Feature math and component scorer tests
+    test_motion_math.py      Camera matrix, rotation math, motion compensator tests
+  main.py                    Pipeline runner, visualization, JSONL logging, --eval mode
+scripts/
+  validate_distance.py       Distance proxy validation against ground-truth CSV
+  ablation_study.py          JSONL log replay under ablated pipeline conditions
+  benchmark_fps.py           Per-component latency benchmark on synthetic frames
+  summarise_log.py           Export per-frame CSV and aggregate stats from JSONL log
+docs/
+  config.yaml                All tunable parameters
 ```
 
 ## Configuration
