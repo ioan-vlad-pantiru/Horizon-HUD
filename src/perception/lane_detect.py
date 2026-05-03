@@ -48,7 +48,11 @@ class LaneDetector:
         self._ema_top: Optional[float] = None
         self._frames_since_detect: int = stale_frames + 1
 
-    def detect(self, frame_bgr: np.ndarray) -> Optional[tuple[float, float]]:
+    def detect(
+        self,
+        frame_bgr: np.ndarray,
+        debug_frame: Optional[np.ndarray] = None,
+    ) -> Optional[tuple[float, float]]:
         """Return (bottom_cx_ratio, top_cx_ratio) or None if not confident."""
         h, w = frame_bgr.shape[:2]
         roi_y = int(h * self._roi_top)
@@ -67,7 +71,10 @@ class LaneDetector:
             maxLineGap=self._hough_gap,
         )
 
-        result = self._fit_lane_centre(lines, w, h - roi_y, roi_y)
+        result = self._fit_lane_centre(lines, w, h - roi_y, roi_y, debug_frame)
+
+        if debug_frame is not None:
+            cv2.line(debug_frame, (0, roi_y), (w, roi_y), (255, 255, 0), 1)
 
         if result is not None:
             raw_bot, raw_top = result
@@ -92,6 +99,7 @@ class LaneDetector:
         roi_w: int,
         roi_h: int,
         roi_y_offset: int,
+        debug_frame: Optional[np.ndarray] = None,
     ) -> Optional[tuple[float, float]]:
         if lines is None:
             return None
@@ -110,8 +118,18 @@ class LaneDetector:
             # In image coords (y down): left lane → negative slope, right → positive
             if slope < 0:
                 left_pts.append((x1, y1, x2, y2))
+                if debug_frame is not None:
+                    cv2.line(debug_frame,
+                             (int(x1), int(y1) + roi_y_offset),
+                             (int(x2), int(y2) + roi_y_offset),
+                             (255, 0, 0), 1)
             else:
                 right_pts.append((x1, y1, x2, y2))
+                if debug_frame is not None:
+                    cv2.line(debug_frame,
+                             (int(x1), int(y1) + roi_y_offset),
+                             (int(x2), int(y2) + roi_y_offset),
+                             (0, 0, 255), 1)
 
         if not left_pts or not right_pts:
             return None
@@ -127,6 +145,18 @@ class LaneDetector:
 
         if lx_bot >= rx_bot or lx_top >= rx_top:
             return None
+
+        if debug_frame is not None:
+            cv2.line(debug_frame,
+                     (int(lx_bot), roi_y_offset + roi_h),
+                     (int(lx_top), roi_y_offset), (0, 255, 255), 2)
+            cv2.line(debug_frame,
+                     (int(rx_bot), roi_y_offset + roi_h),
+                     (int(rx_top), roi_y_offset), (0, 255, 255), 2)
+            cx_px = int((lx_bot + rx_bot) / 2)
+            cv2.circle(debug_frame, (cx_px, roi_y_offset + roi_h), 6, (0, 255, 0), -1)
+            cx_px_top = int((lx_top + rx_top) / 2)
+            cv2.circle(debug_frame, (cx_px_top, roi_y_offset), 6, (0, 255, 0), -1)
 
         cx_bot = ((lx_bot + rx_bot) / 2.0) / roi_w
         cx_top = ((lx_top + rx_top) / 2.0) / roi_w

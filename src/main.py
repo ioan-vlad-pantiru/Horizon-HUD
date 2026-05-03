@@ -498,6 +498,7 @@ def main() -> None:
     # ── display toggles ────────────────────────────────────────────────────────
     show_risk = True
     show_corridor = True
+    show_lane_debug = False
 
     prev_time = time.monotonic()
     pending_frame: Optional[np.ndarray] = test_frame
@@ -539,7 +540,7 @@ def main() -> None:
             yaw_delta = orient.yaw - yaw_ref
             imu_cx = yaw_to_center_x(yaw_delta, corridor_cfg.yaw_gain)
 
-            lane_result = lane_detector.detect(frame)
+            lane_result = lane_detector.detect(frame, debug_frame=frame if show_lane_debug else None)
             if lane_result is not None:
                 lane_cx_bot, lane_cx_top = lane_result
                 center_x = lane_cx_top
@@ -667,6 +668,9 @@ def main() -> None:
             elif key == ord("c"):
                 show_corridor = not show_corridor
                 logger.info("Corridor overlay %s", "ON" if show_corridor else "OFF")
+            elif key == ord("l"):
+                show_lane_debug = not show_lane_debug
+                logger.info("Lane debug overlay %s", "ON" if show_lane_debug else "OFF")
 
     finally:
         cap.release()
