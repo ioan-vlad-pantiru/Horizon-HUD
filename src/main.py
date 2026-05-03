@@ -534,29 +534,28 @@ def main() -> None:
             imu_reading = imu.read(now)
             orient = orient_est.update(imu_reading)
 
-            # ── yaw-steered corridor fused with lane detection ────────────────
+            # ── lane-detection corridor (freeze on last-known if stale) ─────
             if yaw_ref is None:
                 yaw_ref = orient.yaw
             yaw_delta = orient.yaw - yaw_ref
-            imu_cx = yaw_to_center_x(yaw_delta, corridor_cfg.yaw_gain)
+            center_x = yaw_to_center_x(yaw_delta, corridor_cfg.yaw_gain)
 
             lane_result = lane_detector.detect(frame, debug_frame=frame if show_lane_debug else None)
             if lane_result is not None:
-                lane_cx_bot, lane_cx_top = lane_result
-                center_x = lane_cx_top
+                lx_bot, rx_bot, lx_top, rx_top = lane_result
+                corridor_poly = np.array([
+                    [lx_bot * fw, float(fh)],        # BL
+                    [rx_bot * fw, float(fh)],        # BR
+                    [rx_top * fw, fh * (1 - corridor_cfg.height_ratio)],  # TR
+                    [lx_top * fw, fh * (1 - corridor_cfg.height_ratio)],  # TL
+                ], dtype=np.float32)
                 lane_source = "lane"
             else:
-                center_x = imu_cx
-                lane_cx_bot = corridor_cfg.center_x_ratio
+                if corridor_poly is None:
+                    corridor_poly = build_corridor_polygon(
+                        fw, fh, dataclasses.replace(corridor_cfg, top_center_x_ratio=center_x)
+                    )
                 lane_source = "imu"
-
-            corridor_poly = build_corridor_polygon(
-                fw, fh, dataclasses.replace(
-                    corridor_cfg,
-                    center_x_ratio=lane_cx_bot if lane_result else corridor_cfg.center_x_ratio,
-                    top_center_x_ratio=center_x,
-                )
-            )
 
             # ── motion compensation ───────────────────────────────────────────
             ego_dx, ego_dy = compensator.update_orientation(orient, frame_w=fw, frame_h=fh)

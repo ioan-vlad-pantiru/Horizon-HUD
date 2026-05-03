@@ -1,13 +1,14 @@
-"""Hough-line based lane centre estimator.
+"""Hough-line based lane boundary detector.
 
-Detects left/right lane boundaries in the lower ROI of a frame and returns
-the normalised x-centre of the lane at both the bottom and top of the ROI.
-Designed to run in <5 ms on a Raspberry Pi 4 at 640×480.
+Returns the left and right lane boundary x-positions (normalised to frame
+width) at the bottom and top of the detection ROI, so the corridor polygon
+can be built directly from the detected road edges.
 
 Output
 ------
-detect() returns (bottom_cx_ratio, top_cx_ratio) in [0, 1] frame-width units,
-or None when detection is not confident enough.
+detect() → (lx_bot, rx_bot, lx_top, rx_top) in [0, 1] or None.
+All four values are EMA-smoothed; None is returned only when the detector
+has been stale for more than `stale_frames` consecutive frames.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ import numpy as np
 class LaneDetector:
     def __init__(
         self,
-        roi_top_ratio: float = 0.45,
+        roi_top_ratio: float = 0.50,
         canny_low: int = 50,
         canny_high: int = 150,
         hough_threshold: int = 15,
@@ -30,7 +31,7 @@ class LaneDetector:
         hough_max_gap: int = 25,
         slope_min: float = 0.3,
         slope_max: float = 3.0,
-        ema_alpha: float = 0.25,
+        ema_alpha: float = 0.20,
         stale_frames: int = 8,
     ) -> None:
         self._roi_top = roi_top_ratio
@@ -44,18 +45,18 @@ class LaneDetector:
         self._alpha = ema_alpha
         self._stale_frames = stale_frames
 
-        self._ema_bot: Optional[float] = None
-        self._ema_top: Optional[float] = None
+        self._ema: Optional[tuple[float, float, float, float]] = None
         self._frames_since_detect: int = stale_frames + 1
 
     def detect(
         self,
         frame_bgr: np.ndarray,
         debug_frame: Optional[np.ndarray] = None,
-    ) -> Optional[tuple[float, float]]:
-        """Return (bottom_cx_ratio, top_cx_ratio) or None if not confident."""
+    ) -> Optional[tuple[float, float, float, float]]:
+        """Return (lx_bot, rx_bot, lx_top, rx_top) ratios or None if stale."""
         h, w = frame_bgr.shape[:2]
         roi_y = int(h * self._roi_top)
+        roi_h = h - roi_y
 
         roi = frame_bgr[roi_y:h, :]
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
@@ -71,36 +72,36 @@ class LaneDetector:
             maxLineGap=self._hough_gap,
         )
 
-        result = self._fit_lane_centre(lines, w, h - roi_y, roi_y, debug_frame)
-
         if debug_frame is not None:
             cv2.line(debug_frame, (0, roi_y), (w, roi_y), (255, 255, 0), 1)
 
-        if result is not None:
-            raw_bot, raw_top = result
-            if self._ema_bot is None:
-                self._ema_bot = raw_bot
-                self._ema_top = raw_top
+        raw = self._fit_boundaries(lines, w, roi_h, roi_y, debug_frame)
+
+        if raw is not None:
+            if self._ema is None:
+                self._ema = raw
             else:
-                self._ema_bot = self._alpha * raw_bot + (1 - self._alpha) * self._ema_bot
-                self._ema_top = self._alpha * raw_top + (1 - self._alpha) * self._ema_top
+                self._ema = tuple(
+                    self._alpha * r + (1 - self._alpha) * e
+                    for r, e in zip(raw, self._ema)
+                )  # type: ignore[assignment]
             self._frames_since_detect = 0
         else:
             self._frames_since_detect += 1
 
         if self._frames_since_detect > self._stale_frames:
             return None
-        assert self._ema_bot is not None and self._ema_top is not None
-        return self._ema_bot, self._ema_top
+        assert self._ema is not None
+        return self._ema
 
-    def _fit_lane_centre(
+    def _fit_boundaries(
         self,
         lines: Optional[np.ndarray],
         roi_w: int,
         roi_h: int,
         roi_y_offset: int,
         debug_frame: Optional[np.ndarray] = None,
-    ) -> Optional[tuple[float, float]]:
+    ) -> Optional[tuple[float, float, float, float]]:
         if lines is None:
             return None
 
@@ -115,21 +116,20 @@ class LaneDetector:
             slope = (y2 - y1) / dx
             if abs(slope) < self._slope_min or abs(slope) > self._slope_max:
                 continue
-            # In image coords (y down): left lane → negative slope, right → positive
             if slope < 0:
                 left_pts.append((x1, y1, x2, y2))
                 if debug_frame is not None:
                     cv2.line(debug_frame,
                              (int(x1), int(y1) + roi_y_offset),
                              (int(x2), int(y2) + roi_y_offset),
-                             (255, 0, 0), 1)
+                             (255, 80, 80), 1)
             else:
                 right_pts.append((x1, y1, x2, y2))
                 if debug_frame is not None:
                     cv2.line(debug_frame,
                              (int(x1), int(y1) + roi_y_offset),
                              (int(x2), int(y2) + roi_y_offset),
-                             (0, 0, 255), 1)
+                             (80, 80, 255), 1)
 
         if not left_pts or not right_pts:
             return None
@@ -153,45 +153,26 @@ class LaneDetector:
             cv2.line(debug_frame,
                      (int(rx_bot), roi_y_offset + roi_h),
                      (int(rx_top), roi_y_offset), (0, 255, 255), 2)
-            cx_px = int((lx_bot + rx_bot) / 2)
-            cv2.circle(debug_frame, (cx_px, roi_y_offset + roi_h), 6, (0, 255, 0), -1)
-            cx_px_top = int((lx_top + rx_top) / 2)
-            cv2.circle(debug_frame, (cx_px_top, roi_y_offset), 6, (0, 255, 0), -1)
+            cv2.circle(debug_frame, (int((lx_bot + rx_bot) / 2), roi_y_offset + roi_h), 6, (0, 255, 0), -1)
+            cv2.circle(debug_frame, (int((lx_top + rx_top) / 2), roi_y_offset), 6, (0, 255, 0), -1)
 
-        cx_bot = ((lx_bot + rx_bot) / 2.0) / roi_w
-        cx_top = ((lx_top + rx_top) / 2.0) / roi_w
-
-        cx_bot = max(0.1, min(0.9, cx_bot))
-        cx_top = max(0.1, min(0.9, cx_top))
-
-        return cx_bot, cx_top
+        clamp = lambda v: max(0.05, min(0.95, v / roi_w))
+        return clamp(lx_bot), clamp(rx_bot), clamp(lx_top), clamp(rx_top)
 
     @staticmethod
     def _average_line(
         pts: list[tuple[float, float, float, float]],
         roi_h: int,
     ) -> Optional[tuple[float, float]]:
-        """Fit a single line through all segment endpoints; return (x_at_bottom, x_at_top)."""
         xs: list[float] = []
         ys: list[float] = []
         for x1, y1, x2, y2 in pts:
             xs += [x1, x2]
             ys += [y1, y2]
-
         if len(xs) < 4:
             return None
-
-        xs_arr = np.array(xs)
-        ys_arr = np.array(ys)
-
-        # fit x = m*y + b  (more stable than y=mx+b for near-vertical lines)
         try:
-            coeffs = np.polyfit(ys_arr, xs_arr, 1)
+            m, b = np.polyfit(np.array(ys), np.array(xs), 1)
         except np.linalg.LinAlgError:
             return None
-
-        m, b = coeffs
-        x_bot = m * roi_h + b
-        x_top = m * 0.0 + b
-
-        return float(x_bot), float(x_top)
+        return float(m * roi_h + b), float(b)
