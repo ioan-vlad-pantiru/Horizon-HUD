@@ -15,7 +15,7 @@ from src.core.types import Detection
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_DEFAULT_MODEL = os.path.join(_PROJECT_ROOT, "models", "best_float16.tflite")
+_DEFAULT_MODEL = os.path.join(_PROJECT_ROOT, "models", "best_int8.tflite")
 
 _DEFAULT_LABELS: dict[int, str] = {
     0: "vehicle",
@@ -108,7 +108,7 @@ class TFLiteDetector:
                 raise ImportError("No TFLite runtime found")
             if not os.path.isfile(model_path):
                 raise FileNotFoundError(f"Model not found: {model_path}")
-            self._interpreter = Interpreter(model_path=model_path)
+            self._interpreter = Interpreter(model_path=model_path, num_threads=4)
             self._interpreter.allocate_tensors()
             self._in_details = self._interpreter.get_input_details()
             self._out_details = self._interpreter.get_output_details()
