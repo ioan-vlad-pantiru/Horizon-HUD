@@ -1,6 +1,6 @@
 [Unit]
 Description=Horizon HUD – motorcycle ADAS heads-up display
-After=network.target
+After=graphical.target
 
 [Service]
 Type=simple
@@ -14,7 +14,7 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 # Give the camera time to be ready after boot
-ExecStartPre=/bin/sleep 3
+ExecStartPre=/bin/sleep 8
 
 [Install]
 WantedBy=multi-user.target
