@@ -5,6 +5,7 @@ Usage:
     python -m src.main --source webcam --imu phone
     python -m src.main --source /dev/video0 --imu hardware
     python -m src.main --source path/to/video.mp4 --config docs/config.yaml
+    python -m src.main --source path/to/video.mp4 --save output.mp4
 
 IMU sources:
     simulator  (default) simulated IMU with selectable scenario
@@ -262,6 +263,7 @@ def _draw_status(
 
 def _open_log(cfg: dict[str, Any], explicit_path: Optional[str]) -> Optional[Any]:
     if explicit_path:
+        os.makedirs(os.path.dirname(os.path.abspath(explicit_path)), exist_ok=True)
         return open(explicit_path, "w")
     log_cfg = cfg.get("log", {})
     if not log_cfg.get("enabled", False):
@@ -382,6 +384,8 @@ def main() -> None:
                         help="IMU source: simulator (default), phone, or hardware")
     parser.add_argument("--jsonl", default=None,
                         help="Optional output JSONL path (overrides config log)")
+    parser.add_argument("--save", default=None, metavar="PATH",
+                        help="Save output video with overlays to this path (e.g. out.mp4)")
     parser.add_argument("--eval", action="store_true",
                         help="Enable evaluation mode: print TP/FP/lead-time stats at shutdown")
     parser.add_argument("--gt", default=None, metavar="PATH",
@@ -494,6 +498,20 @@ def main() -> None:
 
     # ── lane detector ──────────────────────────────────────────────────────────
     lane_detector = LaneDetector()
+
+    # ── video writer ───────────────────────────────────────────────────────────
+    writer: Optional[cv2.VideoWriter] = None
+    if args.save:
+        fh0, fw0 = test_frame.shape[:2]
+        src_fps = cap.get(cv2.CAP_PROP_FPS) if not is_webcam else 0.0
+        out_fps = src_fps if src_fps > 0 else 30.0
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(args.save, fourcc, out_fps, (fw0, fh0))
+        if not writer.isOpened():
+            logger.error("Cannot open video writer for path: %s", args.save)
+            writer = None
+        else:
+            logger.info("Saving output video to %s  (%.0f FPS, %dx%d)", args.save, out_fps, fw0, fh0)
 
     # ── display toggles ────────────────────────────────────────────────────────
     show_risk = True
@@ -632,6 +650,9 @@ def main() -> None:
                 lane_source=lane_source,
             )
 
+            if writer is not None:
+                writer.write(frame)
+
             cv2.imshow("Horizon-HUD", frame)
 
             # ── logging ───────────────────────────────────────────────────────
@@ -674,6 +695,9 @@ def main() -> None:
 
     finally:
         cap.release()
+        if writer is not None:
+            writer.release()
+            logger.info("Output video saved: %s", args.save)
         cv2.destroyAllWindows()
         if log_file:
             log_file.close()

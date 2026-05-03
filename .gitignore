@@ -138,3 +138,4 @@ temp/
 .Trashes
 
 datasets/
+.cursor
