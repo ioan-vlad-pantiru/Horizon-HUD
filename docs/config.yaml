@@ -122,7 +122,7 @@ risk:
 
 # ── Signal Classifier ──────────────────────────────────────────────────────
 signal_classifier:
-  model: models/signal_int8_quant.onnx  # INT8 static quantized — fast on Pi 4 ARM NEON
+  model: models/signal_float32.onnx  # float32 — PTQ failed for MobileNetV3 hard-swish
   classify_every_n: 3                # run inference every N frames per track
   vote_n: 2                          # N positives required in last M frames
   vote_m: 5                          # sliding window size for temporal smoother

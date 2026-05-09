@@ -278,9 +278,14 @@ class SignalClassifier:
         confidence = float((float(out[0]) + float(out[1]) + float(out[2])) / 3.0)
         return SignalState(brake=brake, left=left, right=right, confidence=confidence)
 
+    # ImageNet normalisation constants (must match training preprocessing)
+    _MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    _STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+
     def _run_ort(self, rgb: np.ndarray) -> Optional[np.ndarray]:
-        # ONNX Runtime expects NCHW float32
+        # ONNX Runtime expects NCHW float32, ImageNet-normalised
         inp = rgb.astype(np.float32) / 255.0
+        inp = (inp - self._MEAN) / self._STD
         inp = np.expand_dims(inp.transpose(2, 0, 1), axis=0)  # HWC → NCHW
         out = self._session.run(None, {self._ort_input_name: inp})[0]
         return out[0].astype(np.float32)
