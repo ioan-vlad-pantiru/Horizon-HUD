@@ -100,6 +100,7 @@ models/
 *.zip
 
 # Datasets (large files)
+data/
 datasets/
 *.jpg
 *.jpeg
@@ -116,9 +117,6 @@ datasets/
 # Output files
 output/
 outputs/
-*.png
-*.jpg
-*.jpeg
 ssd_output.png
 test.jpg
 test.yuv
@@ -137,5 +135,4 @@ temp/
 .Spotlight-V100
 .Trashes
 
-datasets/
 .cursor

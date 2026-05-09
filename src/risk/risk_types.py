@@ -10,6 +10,8 @@ import dataclasses
 from collections import deque
 from typing import Optional
 
+from src.core.types import SignalState
+
 
 @dataclasses.dataclass
 class RiskAssessmentV1:
@@ -20,6 +22,7 @@ class RiskAssessmentV1:
     distance_m: Optional[float]
     reasons: list[str]
     in_corridor: bool
+    signal_state: Optional[SignalState] = None
 
 
 @dataclasses.dataclass
@@ -38,12 +41,13 @@ class RiskConfig:
     """All tunable parameters for RiskEngineV1."""
 
     # ── scoring weights (should sum to ~1.0) ──────────────────────────────────
-    w_ttc: float = 0.35
+    w_ttc: float = 0.30
     w_distance: float = 0.20
     w_path: float = 0.20
-    w_class: float = 0.10
+    w_class: float = 0.05
     w_erratic: float = 0.05
     w_lateral: float = 0.10    # lateral closing speed toward corridor centreline
+    w_signal: float = 0.10     # rear-signal classification (brake / indicator)
 
     # ── TTC breakpoints (seconds) ─────────────────────────────────────────────
     # Piecewise linear: 1.0 at <=critical, 0.7 at high, 0.3 at medium, 0.0 at max

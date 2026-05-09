@@ -45,7 +45,7 @@ from src.risk.risk_types import (
     RiskConfig,
     TrackSnapshot,
 )
-from src.core.types import Track
+from src.core.types import SignalState, Track
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,60 @@ def _distance_risk(dist_m: float, cfg: RiskConfig) -> float:
     if dist_m >= cfg.distance_max_m:
         return 0.0
     return (cfg.distance_max_m - dist_m) / (cfg.distance_max_m - cfg.distance_near_m)
+
+
+# ── signal helpers ────────────────────────────────────────────────────────────
+
+def _corridor_centre_at_y(foot_y: float, poly: np.ndarray) -> Optional[float]:
+    """Return corridor centreline x at foot_y, or None when outside vertical span."""
+    bot_y = float(poly[0, 1])
+    top_y = float(poly[3, 1])
+    if foot_y < top_y or foot_y > bot_y:
+        return None
+    span = bot_y - top_y
+    if span < 1e-6:
+        return None
+    t = (foot_y - top_y) / span
+    left_x = float(poly[3, 0]) + t * (float(poly[0, 0]) - float(poly[3, 0]))
+    right_x = float(poly[2, 0]) + t * (float(poly[1, 0]) - float(poly[2, 0]))
+    return (left_x + right_x) / 2.0
+
+
+def _signal_risk(
+    sig_state: Optional[SignalState],
+    tr: Track,
+    corridor_poly: np.ndarray,
+) -> float:
+    """Map rear-signal state to a risk score in [0, 1].
+
+    brake=True               → 0.7  (strong hazard regardless of direction)
+    hazard lights (L+R)      → 0.6  (hazard / stopped ahead)
+    indicator toward corridor → 0.5  (may cut across path)
+    indicator away            → 0.2  (lower risk, leaving our lane)
+    no signal / None          → 0.0
+    """
+    if sig_state is None:
+        return 0.0
+    if sig_state.brake:
+        return 0.7
+    if sig_state.hazard:
+        return 0.6
+    if not sig_state.left and not sig_state.right:
+        return 0.0
+
+    foot_y = float(tr.bbox_xyxy[3])
+    centre_x = _corridor_centre_at_y(foot_y, corridor_poly)
+    track_cx = (tr.bbox_xyxy[0] + tr.bbox_xyxy[2]) / 2.0
+
+    if centre_x is None:
+        return 0.2
+
+    if sig_state.left:
+        toward = track_cx > centre_x   # track right-of-centre, left indicator points toward us
+    else:
+        toward = track_cx < centre_x   # track left-of-centre, right indicator points toward us
+
+    return 0.5 if toward else 0.2
 
 
 # ── hysteresis ────────────────────────────────────────────────────────────────
@@ -186,6 +240,7 @@ class RiskEngineV1:
         timestamp: float,
         compensated_velocities: Optional[dict[int, tuple[float, float]]] = None,
         corridor_center_x: Optional[float] = None,
+        signal_states: Optional[dict[int, SignalState]] = None,
     ) -> list[RiskAssessmentV1]:
         """Score all active tracks and return top-N assessments.
 
@@ -220,7 +275,8 @@ class RiskEngineV1:
         for tr in tracks:
             tid = tr.track_id
             comp_vel = (compensated_velocities or {}).get(tid)
-            assessment = self._score_track(tr, fw, fh, timestamp, comp_vel)
+            sig_state = (signal_states or {}).get(tid)
+            assessment = self._score_track(tr, fw, fh, timestamp, comp_vel, sig_state)
             results.append(assessment)
 
         results.sort(key=lambda a: a.risk_score, reverse=True)
@@ -235,6 +291,7 @@ class RiskEngineV1:
         fh: int,
         timestamp: float,
         comp_vel: Optional[tuple[float, float]],
+        sig_state: Optional[SignalState] = None,
     ) -> RiskAssessmentV1:
         tid = tr.track_id
         cfg = self._cfg
@@ -279,6 +336,7 @@ class RiskEngineV1:
         r_class = cfg.class_prior.get(label, cfg.class_prior.get("default", 0.5))
         r_erratic = erratic_score(hist)
         r_lateral = lateral_risk_score(tr, poly, comp_vel, cfg.lateral_ttc_s)
+        r_signal = _signal_risk(sig_state, tr, poly)
         conf = confidence_factor(tr)
 
         raw = (
@@ -288,6 +346,7 @@ class RiskEngineV1:
             + cfg.w_class * r_class
             + cfg.w_erratic * r_erratic
             + cfg.w_lateral * r_lateral
+            + cfg.w_signal * r_signal
         )
         raw = max(0.0, min(raw * conf, 1.0))
 
@@ -309,7 +368,7 @@ class RiskEngineV1:
 
         # ── reasons ───────────────────────────────────────────────────────────
         reasons = self._build_reasons(
-            dist_m, cspd_m, ttc, in_corr, prox, tr, r_erratic, cfg
+            dist_m, cspd_m, ttc, in_corr, prox, tr, r_erratic, cfg, sig_state
         )
 
         return RiskAssessmentV1(
@@ -320,6 +379,7 @@ class RiskEngineV1:
             distance_m=round(dist_m, 1),
             reasons=reasons,
             in_corridor=in_corr,
+            signal_state=sig_state,
         )
 
     # ── reasons builder ───────────────────────────────────────────────────────
@@ -334,6 +394,7 @@ class RiskEngineV1:
         tr: Track,
         r_erratic: float,
         cfg: RiskConfig,
+        sig_state: Optional[SignalState] = None,
     ) -> list[str]:
         reasons: list[str] = []
         if in_corr or prox > 0.5:
@@ -348,6 +409,15 @@ class RiskEngineV1:
             reasons.append("erratic")
         if tr.hits < 3 or tr.time_since_update > 0.3:
             reasons.append("unstable track")
+        if sig_state is not None:
+            if sig_state.brake:
+                reasons.append("braking")
+            if sig_state.hazard:
+                reasons.append("hazard lights")
+            elif sig_state.left:
+                reasons.append("signaling left")
+            elif sig_state.right:
+                reasons.append("signaling right")
         return reasons if reasons else ["low risk"]
 
     # ── housekeeping ──────────────────────────────────────────────────────────
@@ -377,7 +447,7 @@ def risk_config_from_dict(d: dict) -> RiskConfig:
     kwargs: dict = {
         k: d[k] for k in (
             "w_ttc", "w_distance", "w_path", "w_class", "w_erratic",
-            "w_lateral", "lateral_ttc_s",
+            "w_lateral", "w_signal", "lateral_ttc_s",
             "ttc_critical_s", "ttc_high_s", "ttc_medium_s", "ttc_max_s",
             "fov_deg",
             "distance_near_m", "distance_max_m",

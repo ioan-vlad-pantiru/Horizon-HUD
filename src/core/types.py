@@ -5,6 +5,19 @@ from typing import Optional
 
 
 @dataclasses.dataclass
+class SignalState:
+    """Rear-signal classification result for a single vehicle track."""
+    brake: bool
+    left: bool
+    right: bool
+    confidence: float  # mean output probability, [0, 1]
+
+    @property
+    def hazard(self) -> bool:
+        return self.left and self.right
+
+
+@dataclasses.dataclass
 class Detection:
     bbox_xyxy: tuple[float, float, float, float]
     score: float

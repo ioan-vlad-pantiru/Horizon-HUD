@@ -42,6 +42,7 @@ import yaml
 from src.perception.corridor import build_corridor_polygon, draw_corridor, yaw_to_center_x
 from src.perception.lane_detect import LaneDetector
 from src.detection.detection_tflite import DummyDetector, TFLiteDetector, create_detector
+from src.detection.signal_classifier import SignalClassifier
 from src.perception.imu_sim import IMUSimulator, Scenario
 from src.perception.motion_comp import MotionCompensator
 from src.perception.orientation import OrientationEstimator
@@ -161,7 +162,26 @@ def _build_pipeline(cfg: dict[str, Any], imu_source: str = "simulator") -> tuple
     corridor_cfg = corridor_config_from_dict(cfg.get("corridor", {}))
     risk_engine = RiskEngineV1(risk_cfg, corridor_cfg)
 
-    return detector, tracker, imu, orient_est, compensator, risk_engine, corridor_cfg
+    signal_classifier: Optional[SignalClassifier] = None
+    sig_cfg = cfg.get("signal_classifier", {})
+    sig_model = sig_cfg.get("model")
+    if sig_model:
+        sig_model_path = (
+            os.path.join(_PROJECT_ROOT, sig_model)
+            if not os.path.isabs(sig_model)
+            else sig_model
+        )
+        try:
+            signal_classifier = SignalClassifier(
+                model_path=sig_model_path,
+                classify_every_n=int(sig_cfg.get("classify_every_n", 3)),
+                vote_n=int(sig_cfg.get("vote_n", 2)),
+                vote_m=int(sig_cfg.get("vote_m", 5)),
+            )
+        except Exception as exc:
+            logger.warning("SignalClassifier construction failed (%s) — disabled", exc)
+
+    return detector, tracker, imu, orient_est, compensator, risk_engine, corridor_cfg, signal_classifier
 
 
 # ── visualisation ──────────────────────────────────────────────────────────────
@@ -212,9 +232,21 @@ def _draw_hazards(
         ttc_str = f"TTC:{ra.ttc_s:.1f}s" if ra.ttc_s is not None else "TTC:--"
         dist_str = f"{ra.distance_m:.0f}m" if ra.distance_m is not None else "--"
 
+        sig_tags: list[str] = []
+        if ra.signal_state is not None:
+            if ra.signal_state.brake:
+                sig_tags.append("[BRAKE]")
+            if ra.signal_state.hazard:
+                sig_tags.append("[HAZARD]")
+            elif ra.signal_state.left:
+                sig_tags.append("[L]")
+            elif ra.signal_state.right:
+                sig_tags.append("[R]")
+
         line1 = f"#{tr.track_id} {tr.label}  {ra.risk_level}"
         line2 = f"{dist_str}  {ttc_str}  spd:{speed:.0f}"
-        line3 = "  ".join(ra.reasons[:3])
+        reasons_text = "  ".join(ra.reasons[:3])
+        line3 = (reasons_text + "  " + "  ".join(sig_tags)).strip() if sig_tags else reasons_text
 
         cv2.putText(frame, line1, (x1, y1 - 42), cv2.FONT_HERSHEY_SIMPLEX,
                     0.46, color, 1, cv2.LINE_AA)
@@ -307,6 +339,7 @@ def _jsonl_record(
         }
         record["tracks"].append(entry)
     for ra in hazards:
+        sig = ra.signal_state
         record["hazards"].append({
             "id": ra.track_id,
             "score": ra.risk_score,
@@ -315,6 +348,12 @@ def _jsonl_record(
             "dist_m": ra.distance_m,
             "in_corridor": ra.in_corridor,
             "reasons": ra.reasons,
+            "signal": {
+                "brake": sig.brake,
+                "left": sig.left,
+                "right": sig.right,
+                "confidence": round(sig.confidence, 3),
+            } if sig is not None else None,
         })
     return json.dumps(record, default=lambda x: float(x) if hasattr(x, 'item') else x)
 
@@ -402,7 +441,7 @@ def main() -> None:
     cfg = _load_config(args.config)
 
     imu_source = args.imu or cfg.get("imu", {}).get("source", "simulator")
-    detector, tracker, imu, orient_est, compensator, risk_engine, corridor_cfg = (
+    detector, tracker, imu, orient_est, compensator, risk_engine, corridor_cfg, signal_classifier = (
         _build_pipeline(cfg, imu_source)
     )
 
@@ -599,11 +638,18 @@ def main() -> None:
                     ))
                 tracks = new_tracks
 
+            # ── signal classification ─────────────────────────────────────────
+            signal_states = (
+                signal_classifier.run(frame, tracks, frame_idx)
+                if signal_classifier is not None else {}
+            )
+
             # ── risk assessment ───────────────────────────────────────────────
             hazards = risk_engine.update(
                 tracks, (fw, fh), now,
                 compensated_velocities=comp_vels if comp_vels else None,
                 corridor_center_x=center_x,
+                signal_states=signal_states if signal_states else None,
             )
             top_ids = {ra.track_id for ra in hazards}
 

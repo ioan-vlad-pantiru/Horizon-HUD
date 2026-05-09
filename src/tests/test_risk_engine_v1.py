@@ -22,7 +22,7 @@ from src.risk.risk_engine import RiskEngineV1, _apply_hysteresis
 from src.risk.risk_features import lateral_risk_score
 from src.risk.risk_types import CorridorConfig, RiskConfig
 from src.perception.corridor import build_corridor_polygon
-from src.core.types import Track
+from src.core.types import SignalState, Track
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -122,11 +122,20 @@ class TestPersistenceGate(unittest.TestCase):
     )
 
     def _run_frames(self, n: int) -> str:
-        """Run the engine for n frames with the high-risk track; return last level."""
+        """Run the engine for n frames with the high-risk braking track; return last level.
+
+        Brake signal is passed so the raw score (≈0.82) clears enter_critical=0.80
+        with the rebalanced weights (w_ttc=0.30, w_class=0.05, w_signal=0.10).
+        The persistence gate logic — not the score level — is what this test verifies.
+        """
         engine = _engine()
         last_level = "LOW"
+        signal_states = {1: SignalState(brake=True, left=False, right=False, confidence=0.9)}
         for i in range(n):
-            results = engine.update([self._HIGH_RISK_TRACK], _FRAME, _T0 + i * _DT)
+            results = engine.update(
+                [self._HIGH_RISK_TRACK], _FRAME, _T0 + i * _DT,
+                signal_states=signal_states,
+            )
             if results:
                 last_level = results[0].risk_level
         return last_level

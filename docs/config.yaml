@@ -56,12 +56,13 @@ corridor:
 # ── Risk Engine v1 ─────────────────────────────────────────────────────────
 risk:
   # scoring weights (should sum to ~1.0)
-  w_ttc: 0.35
+  w_ttc: 0.30
   w_distance: 0.20
   w_path: 0.20
-  w_class: 0.10
+  w_class: 0.05
   w_erratic: 0.05
   w_lateral: 0.10      # lateral closing speed toward corridor centreline
+  w_signal: 0.10       # rear-signal classification (brake / indicator)
 
   # Lateral risk threshold
   lateral_ttc_s: 2.0   # time-to-centreline (s) above which lateral risk = 0
@@ -112,6 +113,13 @@ risk:
 
   # Per-track history depth (frames)
   history_len: 8
+
+# ── Signal Classifier ──────────────────────────────────────────────────────
+signal_classifier:
+  model: models/signal_int8_quant.onnx  # INT8 static quantized — fast on Pi 4 ARM NEON
+  classify_every_n: 3                # run inference every N frames per track
+  vote_n: 2                          # N positives required in last M frames
+  vote_m: 5                          # sliding window size for temporal smoother
 
 # ── Logging ────────────────────────────────────────────────────────────────
 log:
