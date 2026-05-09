@@ -124,11 +124,12 @@ class TestPersistenceGate(unittest.TestCase):
     def _run_frames(self, n: int) -> str:
         """Run the engine for n frames with the high-risk braking track; return last level.
 
-        Brake signal is passed so the raw score (≈0.82) clears enter_critical=0.80
-        with the rebalanced weights (w_ttc=0.30, w_class=0.05, w_signal=0.10).
+        Brake signal is passed so the raw score clears enter_critical (lowered to 0.75
+        to stay above threshold after the w_ttc rebalancing to 0.25).
         The persistence gate logic — not the score level — is what this test verifies.
         """
-        engine = _engine()
+        cfg = RiskConfig(enter_critical=0.75, exit_critical=0.70)
+        engine = _engine(cfg=cfg)
         last_level = "LOW"
         signal_states = {1: SignalState(brake=True, left=False, right=False, confidence=0.9)}
         for i in range(n):

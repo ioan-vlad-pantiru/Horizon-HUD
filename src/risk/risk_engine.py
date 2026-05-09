@@ -29,6 +29,7 @@ from src.perception.corridor import (
     point_in_polygon,
 )
 from src.risk.risk_features import (
+    _corridor_centre_at_y,
     bbox_center,
     bbox_height,
     confidence_factor,
@@ -37,6 +38,7 @@ from src.risk.risk_features import (
     focal_length_from_fov,
     fused_closing_speed_m,
     lateral_risk_score,
+    pedestrian_crossing_score,
     ttc_proxy,
 )
 from src.risk.risk_types import (
@@ -82,21 +84,6 @@ def _distance_risk(dist_m: float, cfg: RiskConfig) -> float:
 
 
 # ── signal helpers ────────────────────────────────────────────────────────────
-
-def _corridor_centre_at_y(foot_y: float, poly: np.ndarray) -> Optional[float]:
-    """Return corridor centreline x at foot_y, or None when outside vertical span."""
-    bot_y = float(poly[0, 1])
-    top_y = float(poly[3, 1])
-    if foot_y < top_y or foot_y > bot_y:
-        return None
-    span = bot_y - top_y
-    if span < 1e-6:
-        return None
-    t = (foot_y - top_y) / span
-    left_x = float(poly[3, 0]) + t * (float(poly[0, 0]) - float(poly[3, 0]))
-    right_x = float(poly[2, 0]) + t * (float(poly[1, 0]) - float(poly[2, 0]))
-    return (left_x + right_x) / 2.0
-
 
 def _signal_risk(
     sig_state: Optional[SignalState],
@@ -337,6 +324,15 @@ class RiskEngineV1:
         r_erratic = erratic_score(hist)
         r_lateral = lateral_risk_score(tr, poly, comp_vel, cfg.lateral_ttc_s)
         r_signal = _signal_risk(sig_state, tr, poly)
+        r_intent = (
+            pedestrian_crossing_score(
+                hist, poly, fw,
+                cfg.intent_lateral_thresh_px_s,
+                cfg.intent_growth_thresh_px_s,
+                cfg.intent_speed_thresh_px_s,
+            )
+            if label == "pedestrian" else 0.0
+        )
         conf = confidence_factor(tr)
 
         raw = (
@@ -347,6 +343,7 @@ class RiskEngineV1:
             + cfg.w_erratic * r_erratic
             + cfg.w_lateral * r_lateral
             + cfg.w_signal * r_signal
+            + cfg.w_intent * r_intent
         )
         raw = max(0.0, min(raw * conf, 1.0))
 
@@ -368,7 +365,7 @@ class RiskEngineV1:
 
         # ── reasons ───────────────────────────────────────────────────────────
         reasons = self._build_reasons(
-            dist_m, cspd_m, ttc, in_corr, prox, tr, r_erratic, cfg, sig_state
+            dist_m, cspd_m, ttc, in_corr, prox, tr, r_erratic, cfg, sig_state, r_intent
         )
 
         return RiskAssessmentV1(
@@ -380,6 +377,7 @@ class RiskEngineV1:
             reasons=reasons,
             in_corridor=in_corr,
             signal_state=sig_state,
+            crossing_prob=round(r_intent, 3),
         )
 
     # ── reasons builder ───────────────────────────────────────────────────────
@@ -395,6 +393,7 @@ class RiskEngineV1:
         r_erratic: float,
         cfg: RiskConfig,
         sig_state: Optional[SignalState] = None,
+        r_intent: float = 0.0,
     ) -> list[str]:
         reasons: list[str] = []
         if in_corr or prox > 0.5:
@@ -407,6 +406,8 @@ class RiskEngineV1:
             reasons.append(f"closing ({cspd_m:.1f}m/s)")
         if r_erratic > 0.4:
             reasons.append("erratic")
+        if r_intent > 0.4:
+            reasons.append("crossing likely")
         if tr.hits < 3 or tr.time_since_update > 0.3:
             reasons.append("unstable track")
         if sig_state is not None:
@@ -447,7 +448,7 @@ def risk_config_from_dict(d: dict) -> RiskConfig:
     kwargs: dict = {
         k: d[k] for k in (
             "w_ttc", "w_distance", "w_path", "w_class", "w_erratic",
-            "w_lateral", "w_signal", "lateral_ttc_s",
+            "w_lateral", "w_signal", "w_intent", "lateral_ttc_s",
             "ttc_critical_s", "ttc_high_s", "ttc_medium_s", "ttc_max_s",
             "fov_deg",
             "distance_near_m", "distance_max_m",
@@ -457,6 +458,9 @@ def risk_config_from_dict(d: dict) -> RiskConfig:
             "enter_critical", "exit_critical",
             "persist_k", "persist_m",
             "top_n", "history_len",
+            "intent_lateral_thresh_px_s",
+            "intent_growth_thresh_px_s",
+            "intent_speed_thresh_px_s",
         ) if k in d
     }
     if kh:

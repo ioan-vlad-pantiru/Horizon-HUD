@@ -56,13 +56,19 @@ corridor:
 # ── Risk Engine v1 ─────────────────────────────────────────────────────────
 risk:
   # scoring weights (should sum to ~1.0)
-  w_ttc: 0.30
+  w_ttc: 0.25
   w_distance: 0.20
   w_path: 0.20
   w_class: 0.05
   w_erratic: 0.05
   w_lateral: 0.10      # lateral closing speed toward corridor centreline
   w_signal: 0.10       # rear-signal classification (brake / indicator)
+  w_intent: 0.05       # pedestrian crossing intent (rule-based, ped-only)
+
+  # Pedestrian crossing intent thresholds
+  intent_lateral_thresh_px_s: 40.0
+  intent_growth_thresh_px_s: 5.0
+  intent_speed_thresh_px_s: 30.0
 
   # Lateral risk threshold
   lateral_ttc_s: 2.0   # time-to-centreline (s) above which lateral risk = 0

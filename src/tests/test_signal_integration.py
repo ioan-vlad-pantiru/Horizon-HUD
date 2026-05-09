@@ -18,7 +18,8 @@ import numpy as np
 
 from src.core.types import SignalState, Track
 from src.perception.corridor import build_corridor_polygon
-from src.risk.risk_engine import RiskEngineV1, _signal_risk, _corridor_centre_at_y
+from src.risk.risk_engine import RiskEngineV1, _signal_risk
+from src.risk.risk_features import _corridor_centre_at_y
 from src.risk.risk_types import CorridorConfig, RiskAssessmentV1, RiskConfig
 
 
@@ -77,6 +78,7 @@ class TestWeightSum(unittest.TestCase):
         total = (
             cfg.w_ttc + cfg.w_distance + cfg.w_path
             + cfg.w_class + cfg.w_erratic + cfg.w_lateral + cfg.w_signal
+            + cfg.w_intent
         )
         self.assertAlmostEqual(total, 1.0, places=10)
 

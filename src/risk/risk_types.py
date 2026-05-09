@@ -23,6 +23,7 @@ class RiskAssessmentV1:
     reasons: list[str]
     in_corridor: bool
     signal_state: Optional[SignalState] = None
+    crossing_prob: Optional[float] = None
 
 
 @dataclasses.dataclass
@@ -41,13 +42,14 @@ class RiskConfig:
     """All tunable parameters for RiskEngineV1."""
 
     # ── scoring weights (should sum to ~1.0) ──────────────────────────────────
-    w_ttc: float = 0.30
+    w_ttc: float = 0.25
     w_distance: float = 0.20
     w_path: float = 0.20
     w_class: float = 0.05
     w_erratic: float = 0.05
     w_lateral: float = 0.10    # lateral closing speed toward corridor centreline
     w_signal: float = 0.10     # rear-signal classification (brake / indicator)
+    w_intent: float = 0.05     # pedestrian crossing intent (rule-based, ped-only)
 
     # ── TTC breakpoints (seconds) ─────────────────────────────────────────────
     # Piecewise linear: 1.0 at <=critical, 0.7 at high, 0.3 at medium, 0.0 at max
@@ -58,6 +60,11 @@ class RiskConfig:
 
     # ── lateral risk ──────────────────────────────────────────────────────────
     lateral_ttc_s: float = 2.0   # lateral time-to-centreline threshold (seconds)
+
+    # ── pedestrian crossing intent thresholds ─────────────────────────────────
+    intent_lateral_thresh_px_s: float = 40.0
+    intent_growth_thresh_px_s: float = 5.0
+    intent_speed_thresh_px_s: float = 30.0
 
     # ── distance calibration ──────────────────────────────────────────────────
     fov_deg: float = 70.0

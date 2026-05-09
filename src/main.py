@@ -233,6 +233,8 @@ def _draw_hazards(
         dist_str = f"{ra.distance_m:.0f}m" if ra.distance_m is not None else "--"
 
         sig_tags: list[str] = []
+        if ra.crossing_prob is not None and ra.crossing_prob > 0.4:
+            sig_tags.append("[CROSS]")
         if ra.signal_state is not None:
             if ra.signal_state.brake:
                 sig_tags.append("[BRAKE]")
@@ -347,6 +349,7 @@ def _jsonl_record(
             "ttc": ra.ttc_s,
             "dist_m": ra.distance_m,
             "in_corridor": ra.in_corridor,
+            "crossing_prob": ra.crossing_prob,
             "reasons": ra.reasons,
             "signal": {
                 "brake": sig.brake,

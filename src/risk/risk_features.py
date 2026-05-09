@@ -288,6 +288,91 @@ def lateral_risk_score(
     return 1.0 - tti / lateral_ttc_s
 
 
+# ── corridor geometry ─────────────────────────────────────────────────────────
+
+def _corridor_centre_at_y(foot_y: float, poly: "np.ndarray") -> Optional[float]:
+    """Return corridor centreline x at foot_y, or None when outside vertical span."""
+    import numpy as _np  # noqa: F401 — poly is already ndarray; import kept for type clarity
+    bot_y = float(poly[0, 1])
+    top_y = float(poly[3, 1])
+    if foot_y < top_y or foot_y > bot_y:
+        return None
+    span = bot_y - top_y
+    if span < 1e-6:
+        return None
+    t = (foot_y - top_y) / span
+    left_x = float(poly[3, 0]) + t * (float(poly[0, 0]) - float(poly[3, 0]))
+    right_x = float(poly[2, 0]) + t * (float(poly[1, 0]) - float(poly[2, 0]))
+    return (left_x + right_x) / 2.0
+
+
+# ── pedestrian crossing intent ────────────────────────────────────────────────
+
+def pedestrian_crossing_score(
+    hist: "deque[TrackSnapshot]",
+    corridor_poly: "np.ndarray",
+    frame_w: int,
+    intent_lateral_thresh_px_s: float = 40.0,
+    intent_growth_thresh_px_s: float = 5.0,
+    intent_speed_thresh_px_s: float = 30.0,
+) -> float:
+    """Crossing-intent score in [0, 1] for pedestrian tracks.
+
+    Three sub-signals combined:
+      0.50 × lateral motion toward corridor centre
+      0.30 × bounding-box growth rate (pedestrian approaching camera)
+      0.20 × overall walking speed (stationary → unlikely to cross)
+
+    Returns 0.0 when fewer than 3 snapshots exist.
+    """
+    if len(hist) < 3:
+        return 0.0
+
+    newest = hist[-1]
+    oldest = hist[0]
+
+    # ── lateral component ─────────────────────────────────────────────────────
+    mean_vx = sum(s.velocity_px_s[0] for s in hist) / len(hist)
+
+    cx = (newest.bbox_xyxy[0] + newest.bbox_xyxy[2]) / 2.0
+    foot_y = float(newest.bbox_xyxy[3])
+    corridor_centre = _corridor_centre_at_y(foot_y, corridor_poly)
+
+    if corridor_centre is not None:
+        # positive = velocity component directed toward corridor centre
+        signed_toward = mean_vx if cx < corridor_centre else -mean_vx
+        lateral_toward = max(signed_toward, 0.0)
+    else:
+        lateral_toward = 0.0
+
+    lateral_component = min(lateral_toward / intent_lateral_thresh_px_s, 1.0)
+
+    # ── growth component ──────────────────────────────────────────────────────
+    dt = newest.timestamp - oldest.timestamp
+    if dt > 1e-3:
+        h_new = bbox_height(newest.bbox_xyxy)
+        h_old = bbox_height(oldest.bbox_xyxy)
+        growth_rate = (h_new - h_old) / dt
+    else:
+        growth_rate = 0.0
+
+    growth_component = min(max(growth_rate, 0.0) / intent_growth_thresh_px_s, 1.0)
+
+    # ── speed component ───────────────────────────────────────────────────────
+    mean_speed = sum(
+        math.sqrt(s.velocity_px_s[0] ** 2 + s.velocity_px_s[1] ** 2)
+        for s in hist
+    ) / len(hist)
+    speed_component = min(mean_speed / intent_speed_thresh_px_s, 1.0)
+
+    score = (
+        0.50 * lateral_component
+        + 0.30 * growth_component
+        + 0.20 * speed_component
+    )
+    return float(min(max(score, 0.0), 1.0))
+
+
 # ── track confidence ──────────────────────────────────────────────────────────
 
 def confidence_factor(track: Track, min_hits: int = 3) -> float:
